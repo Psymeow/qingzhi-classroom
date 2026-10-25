@@ -1,12 +1,12 @@
 [project]
+sub_id = "a88a1834"
+name = "qingzhi-classroom"
 requires = [ "nodejs-24" ]
 project_type = "web"
-project_name = "qingzhi-classroom"
-project_id = ""
-app_id = ""
-template = "nextjs"
 version = "0.1.9"
-appliedPatches = [ ]
+
+[preview]
+preview_enable = "enabled"
 
 [dev]
 build = [ "bash", "./scripts/prepare.sh" ]
@@ -36,7 +36,6 @@ validate_win = [
   "-File",
   "./scripts/validate.ps1"
 ]
-deps = [ "git", "rsync" ]
 
 [deploy]
 build = [ "bash", "./scripts/build.sh" ]
@@ -58,3 +57,10 @@ run_win = [
   "./scripts/start.ps1"
 ]
 deps = [ "git" ]
+
+[deploy.profile]
+kind = "service"
+flavor = "web"
+
+[subprojects]
+path = [ "." ]

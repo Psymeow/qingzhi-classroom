@@ -52,7 +52,13 @@ src/
 
 - 动态数据（Date.now/Math.random/typeof window）仅在 `'use client'` + useEffect/useState 中使用；禁止非法 HTML 嵌套；禁止 head 标签，用 metadata。
 
+## 运行与预览
+
+- 预览链路：`.coze[dev]` build=`scripts/prepare.sh`、run=`scripts/dev.sh`；`.preview` 声明 `expose_port = 5000`。dev.sh 自动 `pnpm install` 并起 `next dev --hostname 0.0.0.0 --port ${PORT:-5000}`，绑定 0.0.0.0、具备端口清理幂等与超时回收。
+- 部署链路：`.coze[deploy]` build=`scripts/build.sh`（pnpm install + `next build` + `tsup src/server.ts`→`dist/server.js`）、run=`scripts/start.sh`（`node dist/server.js`，端口 5000）。`[deploy.profile] kind="service" flavor="web"`。
+- 后端 API Routes 已同仓实现于 `src/app/api/**`（lessons/standards/assets/inputs/annotation/analysis、/api/me 等），前端经 `@/lib/api/client` 相对路径访问。
+- `.coze` 为单层结构：`sub_id="a88a1834"`（不可改）、`project_type="web"`、`preview_enable="enabled"`、`[subprojects].path=["."]`。
+
 ## 待接入事项
 
-- `/api/**` 后端路由（lessons/standards/assets/inputs/annotation/analysis、/api/me）尚未在本仓实现，前端数据接线已按上述契约就绪。
-- Supabase 环境变量 `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` 需在部署环境配置。
+- Supabase 环境变量 `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` 需在部署环境配置；未配置时 `/api/supabase-config` 会 500。
