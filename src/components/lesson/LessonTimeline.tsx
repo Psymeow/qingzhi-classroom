@@ -13,6 +13,7 @@ import {
   type TimelineSegment,
 } from '@/lib/report/timeline';
 import { friendlyError } from '@/components/feedback/StateBlocks';
+import { api } from '@/lib/api/client';
 
 interface TimelinePayload {
   segment_source: 'asr' | 'transcript' | 'none';
@@ -76,12 +77,7 @@ export default function LessonTimeline({ lessonId, result }: { lessonId: string;
     (async () => {
       try {
         setLoading(true);
-        const res = await fetch(`/api/lessons/${lessonId}/timeline`, { cache: 'no-store' });
-        if (!res.ok) {
-          const body = (await res.json().catch(() => ({}))) as { error?: string };
-          throw new Error(body.error ?? `加载失败（${res.status}）`);
-        }
-        const payload = (await res.json()) as TimelinePayload;
+        const payload = await api.get<TimelinePayload>(`/api/lessons/${lessonId}/timeline`);
         if (cancelled) return;
         setData(payload);
       } catch (e) {

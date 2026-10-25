@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { seekTo } from '@/lib/report/timeline';
 import { friendlyError } from '@/components/feedback/StateBlocks';
+import { api } from '@/lib/api/client';
 
 interface WebResult {
   title: string;
@@ -170,13 +171,11 @@ export default function AskAssistant({ lessonId }: { lessonId: string }) {
         { id: `u${idRef.current++}`, role: 'user', content: q },
       ]);
       try {
-        const res = await fetch(`/api/lessons/${lessonId}/ask`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ question: q, history, use_web: useWeb }),
+        const data = await api.post<Partial<AskResponse>>(`/api/lessons/${lessonId}/ask`, {
+          question: q,
+          history,
+          use_web: useWeb,
         });
-        const data = (await res.json().catch(() => ({}))) as Partial<AskResponse> & { error?: string };
-        if (!res.ok) throw new Error(data.error ?? `请求失败（${res.status}）`);
         setMessages((prev) => [
           ...prev,
           {

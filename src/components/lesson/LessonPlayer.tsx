@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { SEEK_EVENT, msToClock, type SeekDetail, type TimelineSegment } from '@/lib/report/timeline';
 import { friendlyError } from '@/components/feedback/StateBlocks';
+import { api } from '@/lib/api/client';
 
 interface SourceMedia {
   id: string;
@@ -49,12 +50,7 @@ export default function LessonPlayer({ lessonId }: { lessonId: string }) {
     (async () => {
       try {
         setLoading(true);
-        const res = await fetch(`/api/lessons/${lessonId}/timeline`, { cache: 'no-store' });
-        if (!res.ok) {
-          const body = (await res.json().catch(() => ({}))) as { error?: string };
-          throw new Error(body.error ?? `加载失败（${res.status}）`);
-        }
-        const payload = (await res.json()) as TimelinePayload;
+        const payload = await api.get<TimelinePayload>(`/api/lessons/${lessonId}/timeline`);
         if (cancelled) return;
         setData(payload);
         const first = payload.videos.find((v) => v.url) ?? payload.audios.find((a) => a.url) ?? null;
