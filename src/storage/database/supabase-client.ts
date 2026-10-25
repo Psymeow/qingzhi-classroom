@@ -19,15 +19,24 @@ async function loadEnv(): Promise<void> {
   // them only in this process. The user token comes from process environment.
   const context = projectContext();
   if (context) {
-    const resolved = await ensureSupabaseEnvironment();
-    if (!resolved) throw new Error('Supabase project configuration is unavailable');
-    projectCredentials = { url: resolved.supabaseUrl, anonKey: resolved.anonKey };
-    envLoaded = true;
-    return;
+    try {
+      const resolved = await ensureSupabaseEnvironment();
+      if (resolved?.supabaseUrl && resolved?.anonKey) {
+        projectCredentials = { url: resolved.supabaseUrl, anonKey: resolved.anonKey };
+        envLoaded = true;
+        return;
+      }
+      console.error('[supabase-client] ensureSupabaseEnvironment returned no credentials, falling back to env vars');
+    } catch (e) {
+      console.error('[supabase-client] ensureSupabaseEnvironment failed, falling back to env vars:', e);
+    }
   }
 
   // Compatibility path for non-plugin projects.
-  if (process.env.COZE_SUPABASE_URL && process.env.COZE_SUPABASE_ANON_KEY) {
+  if (
+    (process.env.COZE_SUPABASE_URL || process.env.SUPABASE_URL) &&
+    (process.env.COZE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY)
+  ) {
     envLoaded = true;
     return;
   }
@@ -92,14 +101,14 @@ async function getSupabaseCredentials(): Promise<SupabaseCredentials> {
 
   if (projectCredentials) return projectCredentials;
 
-  const url = process.env.COZE_SUPABASE_URL;
-  const anonKey = process.env.COZE_SUPABASE_ANON_KEY;
+  const url = process.env.COZE_SUPABASE_URL || process.env.SUPABASE_URL;
+  const anonKey = process.env.COZE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
 
   if (!url) {
-    throw new Error('COZE_SUPABASE_URL is not set');
+    throw new Error('COZE_SUPABASE_URL / SUPABASE_URL is not set');
   }
   if (!anonKey) {
-    throw new Error('COZE_SUPABASE_ANON_KEY is not set');
+    throw new Error('COZE_SUPABASE_ANON_KEY / SUPABASE_ANON_KEY is not set');
   }
 
   return { url, anonKey };
