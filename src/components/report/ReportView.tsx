@@ -42,6 +42,9 @@ import EssenceOnePager from './EssenceOnePager';
 import ScaleBar from './ScaleBar';
 import IndicatorMap from './IndicatorMap';
 import EvidenceItem from './EvidenceItem';
+import DimensionInterpretationBlock, {
+  useDimensionInterpretations,
+} from './DimensionInterpretation';
 import { downloadReportHtml } from '@/lib/report/export-html';
 import { getSourceText, locateQuote, nearestTimestamp, type LocateSource } from '@/lib/report/locate';
 
@@ -231,6 +234,14 @@ export default function ReportView({
   const result = report.result;
   // 离线样例没有「数据接入」原文，证据不可跳转
   const offlineSample = lessonId === 'sample-lesson';
+
+  // V1.17 维度级 AI 解读：旧报告缺省时按需生成一次，随后随报告落库
+  const dimInterp = useDimensionInterpretations({
+    lessonId,
+    genKey: result.generated_at,
+    existing: result.dimension_interpretations,
+    enabled: !offlineSample && result.ai_meta?.enabled !== false,
+  });
 
   const radarData = useMemo(() => {
     const metaMap = new Map(dimensions.map((d) => [d.code, d]));
@@ -628,6 +639,15 @@ export default function ReportView({
                       </span>
                     )}
                   </div>
+                  {/* V1.17 维度级 AI 解读：依据/为什么/怎么读/怎么提升，默认收起，导出打印时展开 */}
+                  <DimensionInterpretationBlock
+                    interpretation={
+                      dimInterp.items?.find((x) => x.dimension_code === d.dimension_code) ?? null
+                    }
+                    loading={dimInterp.loading}
+                    error={dimInterp.error}
+                    onRetry={dimInterp.retry}
+                  />
                 </div>
               );
             })}

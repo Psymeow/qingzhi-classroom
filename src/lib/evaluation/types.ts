@@ -272,6 +272,23 @@ export interface LessonTypeEvaluation {
   model?: string;
 }
 
+/**
+ * 维度级 AI 解读（按需生成）：为单个维度的评分回答四问——
+ * 依据/素材、为什么是这个分、如何解读、如何提升。
+ * 与 ai_commentary 一样只做解读与建议，不修改任何评分数据。
+ */
+export interface DimensionInterpretation {
+  dimension_code: string;
+  /** 评分依据与素材：用了哪些材料、哪些指标/证据支撑这个分 */
+  basis: string;
+  /** 为什么这节课该维度评这个分：从证据到分数的推理 */
+  why: string;
+  /** 如何解读这个分：等级含义、维度间位置与阅读边界 */
+  how_to_read: string;
+  /** 如何提升：先写可补充的材料（任务单/观察记录等），再写教学设计与实施的改进 */
+  how_to_improve: string;
+}
+
 /** 完整分析报告结果 */
 export interface AnalysisReport {
   lesson_id: string;
@@ -293,6 +310,8 @@ export interface AnalysisReport {
   ai_meta?: AiMeta;
   /** AI 生成的报告评语（教学分析与改进建议），模型不可用时缺省 */
   ai_commentary?: AiCommentary;
+  /** 各维度的 AI 解读（四段长文，查看报告时按需生成并回写），旧报告缺省 */
+  dimension_interpretations?: DimensionInterpretation[];
   /** 课型专属分析模型评价结果（未设置或无法识别课型时为 null） */
   lesson_type_eval?: LessonTypeEvaluation | null;
   /** 表一内涵框架细化评价：认知（高阶思维 11 指标）+ 情感（情感素养 8 指标）观察点 */

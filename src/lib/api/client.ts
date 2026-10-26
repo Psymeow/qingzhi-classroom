@@ -528,7 +528,7 @@ export const annotationApi = {
 };
 
 // ---------- 分析报告（多源融合引擎） ----------
-import type { AnalysisReport, DataSource } from '@/lib/evaluation/types';
+import type { AnalysisReport, DataSource, DimensionInterpretation } from '@/lib/evaluation/types';
 
 export interface StoredReport {
   id: string;
@@ -571,6 +571,18 @@ export const analysisApi = {
       opts?.signal ? { signal: opts.signal } : undefined,
     );
     return r.report;
+  },
+  /** 按需生成五维 AI 解读（依据/为什么/怎么读/怎么提升），服务端生成后写回报告 */
+  generateInterpretations: async (
+    lessonId: string,
+    opts?: { signal?: AbortSignal },
+  ): Promise<DimensionInterpretation[]> => {
+    const r = await api.post<{ interpretations: DimensionInterpretation[] }>(
+      `/api/lessons/${lessonId}/analysis/interpretation`,
+      {},
+      opts?.signal ? { signal: opts.signal } : undefined,
+    );
+    return r.interpretations ?? [];
   },
 };
 

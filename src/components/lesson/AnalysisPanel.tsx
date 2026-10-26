@@ -28,6 +28,9 @@ import ConsistencyCheck from '@/components/lesson/ConsistencyCheck';
 import LessonTypeEvalView from '@/components/report/LessonTypeEvalView';
 import EssenceEvalView from '@/components/report/EssenceEvalView';
 import EvidenceItem from '@/components/report/EvidenceItem';
+import DimensionInterpretationBlock, {
+  useDimensionInterpretations,
+} from '@/components/report/DimensionInterpretation';
 import { getSourceText, locateQuote, nearestTimestamp, type LocateSource } from '@/lib/report/locate';
 import {
   DEFAULT_SOURCE_WEIGHTS,
@@ -169,6 +172,14 @@ export default function AnalysisPanel({ lessonId, dimensions, onUnauthorized, on
     dimensions.forEach((d) => m.set(d.code, d));
     return m;
   }, [dimensions]);
+
+  // V1.17 维度级 AI 解读：旧报告缺省时按需生成一次（与报告面板共享同一请求）
+  const dimInterp = useDimensionInterpretations({
+    lessonId,
+    genKey: report?.result.generated_at ?? '',
+    existing: report?.result.dimension_interpretations ?? null,
+    enabled: !!report && report.result.ai_meta?.enabled !== false,
+  });
 
   if (loading) {
     return (
@@ -415,6 +426,15 @@ export default function AnalysisPanel({ lessonId, dimensions, onUnauthorized, on
                           </span>
                         )}
                       </div>
+                      {/* V1.17 维度级 AI 解读：依据/为什么/怎么读/怎么提升，默认收起 */}
+                      <DimensionInterpretationBlock
+                        interpretation={
+                          dimInterp.items?.find((x) => x.dimension_code === d.dimension_code) ?? null
+                        }
+                        loading={dimInterp.loading}
+                        error={dimInterp.error}
+                        onRetry={dimInterp.retry}
+                      />
                       {(() => {
                         // P1-1：证据可点击跳回「数据接入」原文位置；按来源分组，无分组时回退普通列表。
                         const groups = d.source_scores.filter((s) => s.evidences.length > 0);
