@@ -328,10 +328,31 @@ export interface PlatformPayload {
   orgs: PlatformOrg[];
   users: PlatformUser[];
   lessons: PlatformLesson[];
+  /** 分块降级：某块统计失败时不再整页 500，而是这里列出失败的块 */
+  degraded?: { key: string; message: string }[];
+  /** 本次数据取回时间（UTC ISO），页面用来显示数据新鲜度 */
+  fetched_at?: string;
+}
+
+/** 后台健康自检单项（GET /api/admin/health/schema） */
+export interface SchemaCheckItem {
+  name: string;
+  ok: boolean;
+  detail: string;
+}
+
+export interface SchemaHealthPayload {
+  ok: boolean;
+  passed: number;
+  total: number;
+  items: SchemaCheckItem[];
+  error?: string;
+  fetched_at?: string;
 }
 
 export const platformApi = {
   get: () => api.get<PlatformPayload>('/api/admin'),
+  health: () => api.get<SchemaHealthPayload>('/api/admin/health/schema'),
 };
 
 // ---------- 数据接入：素材文件 + 转写文稿/观察记录 ----------
