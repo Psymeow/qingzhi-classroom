@@ -167,6 +167,9 @@ export default function LessonPlayer({ lessonId }: { lessonId: string }) {
   const hasMedia = Boolean(activeMedia);
   const hasSegments = segments.length > 0;
   const mediaList = [...(data?.videos ?? []), ...(data?.audios ?? [])].filter((m) => m.url);
+  // 有媒体记录但一个都签不出 URL（存储凭证/对象缺失）：不能当成「没传过」误导用户
+  const mediaCount = (data?.videos?.length ?? 0) + (data?.audios?.length ?? 0);
+  const mediaSignBroken = !hasMedia && mediaCount > 0;
   const isVideo = (data?.videos ?? []).some((v) => v.url === activeMedia);
 
   return (
@@ -183,10 +186,20 @@ export default function LessonPlayer({ lessonId }: { lessonId: string }) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-2.5">
-        {!hasMedia && (
+        {!hasMedia && !mediaSignBroken && (
           <div className="rounded-lg border border-dashed border-border bg-muted/30 px-3 py-4 text-[13px] leading-5 text-muted-foreground">
             这节课还没有课堂录像或录音。到「数据接入」上传后，这里会常驻播放器和逐句字幕，
             右侧的证据、时间轴都能一键跳到对应时刻。
+          </div>
+        )}
+
+        {mediaSignBroken && (
+          <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-[13px] leading-5 text-amber-800">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              已上传 {mediaCount} 个音视频，但播放地址生成失败（通常是存储服务异常或文件对象缺失）。
+              请稍后刷新重试；若持续出现，请联系管理员并附上课例名称。
+            </span>
           </div>
         )}
 
