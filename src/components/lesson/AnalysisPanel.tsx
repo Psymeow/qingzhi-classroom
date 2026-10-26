@@ -1,9 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Loader2,
-  Play,
   AlertTriangle,
   CheckCircle2,
   Database,
@@ -22,7 +21,6 @@ import {
   TabsList,
   TabsTrigger,
 } from '@/components/ui/tabs';
-import { analysisApi, ApiError, type StoredReport } from '@/lib/api/client';
 import LessonTypeBar from '@/components/lesson/LessonTypeBar';
 import ConsistencyCheck from '@/components/lesson/ConsistencyCheck';
 import LessonTypeEvalView from '@/components/report/LessonTypeEvalView';
@@ -33,17 +31,18 @@ import DimensionInterpretationBlock, {
 } from '@/components/report/DimensionInterpretation';
 import { getSourceText, locateQuote, nearestTimestamp, type LocateSource } from '@/lib/report/locate';
 import {
-  DEFAULT_SOURCE_WEIGHTS,
   SOURCE_LABEL,
   type DataSource,
 } from '@/lib/evaluation/types';
 import type { DimMeta } from '@/components/annotation/DimensionScores';
+import type { AnalysisRunner } from '@/components/lesson/useAnalysisRunner';
 
 interface Props {
   lessonId: string;
   dimensions: DimMeta[];
   onUnauthorized: () => void;
-  onReportChange?: (report: StoredReport | null) => void;
+  /** 分析运行器：报告、运行状态与「重新运行分析」入口由页面顶层的全局控制条（视频上方）持有。 */
+  runner: AnalysisRunner;
 }
 
 const SOURCE_KEYS: DataSource[] = [
@@ -64,108 +63,11 @@ function scoreColor(score: number | null): string {
   return 'bg-red-400';
 }
 
-export default function AnalysisPanel({ lessonId, dimensions, onUnauthorized, onReportChange }: Props) {
-  const [report, setReport] = useState<StoredReport | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [running, setRunning] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // P1-5：多源融合权重对普通教师隐藏，系统按统一的默认权重融合，避免被误当作可随意调参的工具。
-  const [weights] = useState<Record<DataSource, number>>({ ...DEFAULT_SOURCE_WEIGHTS });
+export default function AnalysisPanel({ lessonId, dimensions, onUnauthorized, runner }: Props) {
+  // 人工终裁输入（仅本地草稿，点击「应用终裁并重算」时随请求提交）
   const [calib, setCalib] = useState<Record<string, string>>({});
   const [calibNote, setCalibNote] = useState<Record<string, string>>({});
-  const [useLlm, setUseLlm] = useState(true);
-  const [lessonType, setLessonType] = useState<string | null>(null);
-  // P0-3：分阶段进度提示 + 可取消。abortRef 持有当前分析请求的 AbortController。
-  const [phase, setPhase] = useState<string | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
-
-  /** 客户端兜底脱敏：任何混入技术细节（Key/状态码/堆栈词）的错误都替换为友好中文提示。 */
-  function safeError(e: unknown, fallback: string): string {
-    const raw = e instanceof Error ? e.message : String(e);
-    if (/api[_-]?key|deepseek|401|403|429|5\d\d|timeout|超时|json|fetch|undefined|stack|网络/i.test(raw)) {
-      return fallback;
-    }
-    return raw || fallback;
-  }
-
-  const load = useCallback(async () => {
-    try {
-      const r = await analysisApi.get(lessonId);
-      setReport(r);
-      onReportChange?.(r ?? null);
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 401) {
-        onUnauthorized();
-        return;
-      }
-      setError(e instanceof Error ? e.message : '加载报告失败');
-    } finally {
-      setLoading(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lessonId]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  async function run(withCalibration: boolean) {
-    const controller = new AbortController();
-    abortRef.current = controller;
-    setRunning(true);
-    setError(null);
-    // 分阶段提示：先读材料，再（可选）等待 AI，最后融合出报告，消除「点了没反应」的焦虑。
-    setPhase('正在读取课堂材料…');
-    const phaseTimer = window.setTimeout(() => {
-      if (useLlm) setPhase('AI 正在阅读材料并逐项评分，通常需要 20–60 秒，请稍候…');
-      else setPhase('正在综合多源材料完成评分…');
-    }, 1200);
-    try {
-      const calibrations = withCalibration
-        ? Object.entries(calib)
-            .map(([dimension_code, v]) => ({
-              dimension_code,
-              final_score: v.trim() === '' ? null : Math.max(0, Math.min(10, Number(v))),
-              review_note: calibNote[dimension_code]?.trim() || undefined,
-            }))
-            .filter((c) => c.final_score !== null && !Number.isNaN(c.final_score as number))
-        : [];
-      const r = await analysisApi.run(
-        lessonId,
-        {
-          source_weights: weights,
-          calibrations,
-          use_llm: useLlm,
-          lesson_type: lessonType,
-        },
-        { signal: controller.signal },
-      );
-      setReport(r);
-      onReportChange?.(r);
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 401) {
-        onUnauthorized();
-        return;
-      }
-      if ((e instanceof Error && e.name === 'AbortError') || controller.signal.aborted) {
-        // 用户主动取消：不作为错误，保留上一次报告。
-        setError(null);
-      } else if (e instanceof ApiError && e.status === 422) {
-        setError(safeError(e, '暂无可分析的材料，请先在「数据接入」粘贴转写文稿/观察记录，或完成人工标注。'));
-      } else {
-        setError(safeError(e, '分析失败，请稍后重试；若长时间无响应可取消后关闭「AI 深度分析」再试。'));
-      }
-    } finally {
-      window.clearTimeout(phaseTimer);
-      abortRef.current = null;
-      setRunning(false);
-      setPhase(null);
-    }
-  }
-
-  function cancelRun() {
-    abortRef.current?.abort();
-  }
+  const report = runner.report;
 
   const dimMeta = useMemo(() => {
     const m = new Map<string, DimMeta>();
@@ -181,7 +83,7 @@ export default function AnalysisPanel({ lessonId, dimensions, onUnauthorized, on
     enabled: !!report && report.result.ai_meta?.enabled !== false,
   });
 
-  if (loading) {
+  if (runner.loading) {
     return (
       <div className="flex h-28 items-center justify-center text-sm text-muted-foreground">
         <Loader2 className="mr-2 h-4 w-4 animate-spin text-primary" /> 正在加载分析结果…
@@ -204,47 +106,7 @@ export default function AnalysisPanel({ lessonId, dimensions, onUnauthorized, on
 
   return (
     <div className="space-y-4">
-      <LessonTypeBar lessonId={lessonId} onUnauthorized={onUnauthorized} onChange={setLessonType} />
-
-      <div className="flex flex-wrap items-center gap-2">
-        {!running ? (
-          <Button onClick={() => run(false)} size="sm">
-            <Play className="mr-2 h-4 w-4" />
-            {report ? '重新运行分析' : '运行课堂分析'}
-          </Button>
-        ) : (
-          <Button variant="destructive" size="sm" onClick={cancelRun}>
-            <span className="mr-2 h-2 w-2 rounded-sm bg-destructive-foreground" />
-            取消本次分析
-          </Button>
-        )}
-        <Button
-          variant={useLlm ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setUseLlm((v) => !v)}
-          disabled={running}
-          title="开启后由 AI 对转写文稿、学生任务单与观察记录做指标级语义评分，并生成教学评语；AI 不可用或超时时自动使用内置规则完成评分，不影响出报告"
-        >
-          <Sparkles className="mr-2 h-4 w-4" /> AI 深度分析：{useLlm ? '开' : '关'}
-        </Button>
-        <span className="text-xs text-muted-foreground">
-          综合课堂转写、学生任务单、观察记录与人工标注进行评分，材料不足的来源会自动降权
-        </span>
-      </div>
-
-      {running && (
-        <div className="flex items-center gap-2 rounded-lg border border-primary/25 bg-primary/[0.05] px-3 py-2 text-sm text-primary">
-          <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-          <span>{phase ?? '正在分析…'}</span>
-        </div>
-      )}
-
-      {error && (
-        <div className="flex items-start gap-2 rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{error}</span>
-        </div>
-      )}
+      <LessonTypeBar lessonId={lessonId} onUnauthorized={onUnauthorized} onChange={runner.setLessonType} />
 
       {aiMeta && (
         <div
@@ -270,7 +132,7 @@ export default function AnalysisPanel({ lessonId, dimensions, onUnauthorized, on
           <Gauge className="mx-auto mb-2 h-8 w-8 text-muted-foreground/40" />
           <p className="text-sm font-medium text-foreground">尚未生成分析报告</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            请先在「数据接入」导入转写文稿 / 观察记录，或在「人工标注」完成打分与打点，再运行分析。
+            请先在「数据接入」导入转写文稿 / 观察记录，或在「人工标注」完成打分与打点，再点击左列视频上方的「运行课堂分析」。
           </p>
         </div>
       ) : (
@@ -489,7 +351,7 @@ export default function AnalysisPanel({ lessonId, dimensions, onUnauthorized, on
                 <div className="rounded-xl border border-dashed border-border bg-muted/30 px-4 py-8 text-center">
                   <p className="text-sm font-medium text-foreground">本课例暂未生成课型要点评价</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {lessonType
+                    {runner.lessonType
                       ? '请开启「AI 深度分析」并重新运行；若 AI 繁忙，可稍后再试。'
                       : '请先在上方选择课型（或用 AI 识别），再运行分析。'}
                   </p>
@@ -580,8 +442,22 @@ export default function AnalysisPanel({ lessonId, dimensions, onUnauthorized, on
                     );
                   })}
                   <div className="flex justify-end">
-                    <Button size="sm" onClick={() => run(true)} disabled={running}>
-                      {running ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+                    <Button
+                      size="sm"
+                      onClick={() =>
+                        runner.run({
+                          calibrations: Object.entries(calib)
+                            .map(([dimension_code, v]) => ({
+                              dimension_code,
+                              final_score: v.trim() === '' ? null : Math.max(0, Math.min(10, Number(v))),
+                              review_note: calibNote[dimension_code]?.trim() || undefined,
+                            }))
+                            .filter((c) => c.final_score !== null && !Number.isNaN(c.final_score as number)),
+                        })
+                      }
+                      disabled={runner.running}
+                    >
+                      {runner.running ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
                       应用终裁并重算
                     </Button>
                   </div>
@@ -659,7 +535,7 @@ export default function AnalysisPanel({ lessonId, dimensions, onUnauthorized, on
             {result.standard_name ?? '情智相长课堂评价标准'} v{result.standard_version} · 生成于 {new Date(result.generated_at).toLocaleString('zh-CN')}
           </div>
 
-          {useLlm && <ConsistencyCheck lessonId={lessonId} onUnauthorized={onUnauthorized} />}
+          {runner.useLlm && <ConsistencyCheck lessonId={lessonId} onUnauthorized={onUnauthorized} />}
         </>
       )}
     </div>

@@ -22,6 +22,8 @@ import AnnotationWorkbench from '@/components/lesson/AnnotationWorkbench';
 import type { DimMeta } from '@/components/annotation/DimensionScores';
 import DataIntake from '@/components/lesson/DataIntake';
 import AnalysisPanel from '@/components/lesson/AnalysisPanel';
+import AnalysisRunBar from '@/components/lesson/AnalysisRunBar';
+import { useAnalysisRunner } from '@/components/lesson/useAnalysisRunner';
 import ReportView from '@/components/report/ReportView';
 import LessonTimeline from '@/components/lesson/LessonTimeline';
 import LessonPlayer from '@/components/lesson/LessonPlayer';
@@ -62,6 +64,13 @@ export default function LessonDetailPage() {
   // V1.13：旧报告的 indicators 未存 name，用标准内容补一份 code → name 映射给指标地图用
   const [indicatorNames, setIndicatorNames] = useState<Record<string, string>>({});
   const [latestReport, setLatestReport] = useState<StoredReport | null>(null);
+  // V1.20：分析运行器提升到页面顶层——「重新运行分析 / AI 深度分析」控制条渲染在
+  // 左列「课堂实录」视频上方（全板块常驻），分析本身作用于整节课的全部数据。
+  const analysisRunner = useAnalysisRunner({
+    lessonId: id,
+    onUnauthorized: () => router.replace('/login'),
+    onReportChange: setLatestReport,
+  });
 
   // V1.9 板块标签：URL ?tab= 同步（刷新/分享保持）；未指定时有报告看报告、无报告进数据接入
   const [activeTab, setActiveTab] = useState<DetailTab>(() => {
@@ -336,7 +345,8 @@ export default function LessonDetailPage() {
         {/* 左列（lg+ 常驻）：课堂录像 + 实时字幕。切任何板块都在，右侧证据/问答引用一键跳转。
             窄屏不进这条轨道（避免挤压内容区），改为在「课堂切片」标签里补一个实例。 */}
         <div className="hidden lg:block">
-          <div className="sticky top-20">
+          <div className="sticky top-20 space-y-3">
+            <AnalysisRunBar runner={analysisRunner} />
             <LessonPlayer lessonId={id} />
           </div>
         </div>
@@ -393,6 +403,10 @@ export default function LessonDetailPage() {
           </div>
 
           <div role="tabpanel" id="panel-analyze" aria-labelledby="tab-analyze" hidden={activeTab !== 'analyze'}>
+            {/* 窄屏时左列播放器/控制条不常驻，在本板块顶部补一份运行控制条 */}
+            <div className="mb-4 lg:hidden">
+              <AnalysisRunBar runner={analysisRunner} />
+            </div>
             <Card className="shadow-card">
               <CardHeader>
                 <CardTitle className="text-base">多源融合分析</CardTitle>
@@ -402,7 +416,7 @@ export default function LessonDetailPage() {
                   lessonId={id}
                   dimensions={dimensions}
                   onUnauthorized={() => router.replace('/login')}
-                  onReportChange={setLatestReport}
+                  runner={analysisRunner}
                 />
               </CardContent>
             </Card>
