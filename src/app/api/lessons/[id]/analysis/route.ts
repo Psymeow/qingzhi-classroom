@@ -8,6 +8,7 @@ import {
   getLatestReport,
   reportHasAnySource,
 } from '@/lib/analysis/runner';
+import { recordRun } from '@/lib/analysis/run-history';
 import { SOURCE_LABEL } from '@/lib/evaluation/types';
 
 export const runtime = 'nodejs';
@@ -55,6 +56,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
 
 // 运行多源融合分析并持久化（每课例一条，覆盖更新）。
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const startedAt = Date.now();
   try {
     const { user, db } = await authenticate(req);
     const { id } = await ctx.params;
@@ -95,8 +97,23 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       );
     }
 
+    // 上一次是否已有报告：用于区分「首次运行」与「重新运行」（运行历史的触发方式）
+    const before = await getLatestReport(db, id, user.id);
+
     // 复用预览结果落库，避免重复调用模型
     const saved = await saveReport(db, id, user.id, preview, runOpts);
+
+    // V1.22：追加一条运行历史（表不存在/写入失败时静默降级，不影响本次结果）
+    await recordRun(db, {
+      lessonId: id,
+      userId: user.id,
+      report: saved.result,
+      useLlm: parsed.data.use_llm !== false,
+      durationMs: Date.now() - startedAt,
+      trigger: before ? 'rerun' : 'manual',
+      sourceWeights: saved.source_weights,
+    });
+
     return NextResponse.json({ report: saved });
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status });

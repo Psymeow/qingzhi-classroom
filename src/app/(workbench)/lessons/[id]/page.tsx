@@ -23,6 +23,7 @@ import type { DimMeta } from '@/components/annotation/DimensionScores';
 import DataIntake from '@/components/lesson/DataIntake';
 import AnalysisPanel from '@/components/lesson/AnalysisPanel';
 import AnalysisRunBar from '@/components/lesson/AnalysisRunBar';
+import { RunHistory } from '@/components/lesson/RunHistory';
 import { useAnalysisRunner } from '@/components/lesson/useAnalysisRunner';
 import ReportView from '@/components/report/ReportView';
 import LessonTimeline from '@/components/lesson/LessonTimeline';
@@ -435,6 +436,13 @@ export default function LessonDetailPage() {
           </div>
 
           <div role="tabpanel" id="panel-report" aria-labelledby="tab-report" hidden={activeTab !== 'report'}>
+            <div className="mb-4">
+              <RunHistory
+                lessonId={id}
+                refreshKey={latestReport?.updated_at ?? null}
+                onUnauthorized={() => router.replace('/login')}
+              />
+            </div>
             {latestReport ? (
               <Card className="shadow-card">
                 <CardHeader>

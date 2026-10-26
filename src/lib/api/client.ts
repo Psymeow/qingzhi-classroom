@@ -3,6 +3,8 @@
 import { getSupabaseBrowserClientAsync } from '@/lib/supabase-browser';
 import { SINGLE_UPLOAD_MAX, CHUNK_SIZE } from '@/lib/lesson/assets';
 import type { LessonDigest, ResearchGroup, ResearchInsight } from '@/lib/research/compare';
+import type { RunRecordItem } from '@/lib/analysis/run-summary';
+export type { RunRecordItem } from '@/lib/analysis/run-summary';
 
 export class ApiError extends Error {
   status: number;
@@ -210,6 +212,9 @@ export const lessonsApi = {
   update: (id: string, input: Partial<Lesson>) =>
     api.patch<{ lesson: Lesson }>(`/api/lessons/${id}`, input).then((r) => r.lesson),
   remove: (id: string) => api.del<{ ok: boolean }>(`/api/lessons/${id}`),
+  /** V1.22 分析运行历史：enabled=false 表示目标库尚未创建 report_runs 表 */
+  runs: (id: string) =>
+    api.get<{ enabled: boolean; runs: RunRecordItem[] }>(`/api/lessons/${id}/runs`),
 };
 
 export const standardsApi = {

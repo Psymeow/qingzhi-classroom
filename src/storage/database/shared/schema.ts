@@ -243,3 +243,39 @@ export const reports = pgTable(
     pgPolicy("reports_delete_own", { as: "permissive", for: "delete", using: ownUser }),
   ],
 );
+
+// ---------- 分析运行历史（V1.22；每次运行追加一条压缩快照，reports 保留当前结果） ----------
+// 表未创建时后端优雅降级（不写历史、界面提示未启用），因此不阻塞既有分析与报告。
+export const reportRuns = pgTable(
+  "report_runs",
+  {
+    id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+    lesson_id: varchar("lesson_id", { length: 36 }).notNull().references(() => lessons.id, { onDelete: "cascade" }),
+    user_id: varchar("user_id", { length: 36 }).notNull(),
+    run_no: integer("run_no").notNull().default(1),
+    total_score: numeric("total_score", { precision: 5, scale: 1 }).notNull().default("0"),
+    total_level: varchar("total_level", { length: 32 }),
+    standard_code: varchar("standard_code", { length: 64 }),
+    standard_version: varchar("standard_version", { length: 32 }),
+    model: varchar("model", { length: 128 }),
+    // 评分 prompt 指纹，用于解释「同一份材料两次运行分数为什么不同」
+    prompt_version: varchar("prompt_version", { length: 32 }),
+    use_llm: boolean("use_llm").notNull().default(false),
+    ai_used: boolean("ai_used").notNull().default(false),
+    ai_error: text("ai_error"),
+    duration_ms: integer("duration_ms"),
+    // manual / rerun / calibrate
+    trigger: varchar("trigger", { length: 24 }).notNull().default("manual"),
+    source_weights: jsonb("source_weights"),
+    // 压缩快照：{ total_score,total_level,dims,cognitive,affective,scored_points,total_points,indicator_scores,sources }
+    summary: jsonb("summary").notNull(),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("report_runs_lesson_idx").on(t.lesson_id, t.created_at),
+    index("report_runs_user_idx").on(t.user_id),
+    pgPolicy("report_runs_select_own", { as: "permissive", for: "select", using: ownUser }),
+    pgPolicy("report_runs_insert_own", { as: "permissive", for: "insert", withCheck: ownUser }),
+    pgPolicy("report_runs_delete_own", { as: "permissive", for: "delete", using: ownUser }),
+  ],
+);
