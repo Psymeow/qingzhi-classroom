@@ -470,6 +470,7 @@ export async function saveReport(
       .select('id,result,total_score,total_level,need_review_count,is_calibrated,source_weights,created_at,updated_at')
       .single();
     if (error) throw error;
+    await markLessonAnalyzed(db, lessonId, userId, nowIso);
     return data as unknown as SavedReport;
   }
 
@@ -479,7 +480,31 @@ export async function saveReport(
     .select('id,result,total_score,total_level,need_review_count,is_calibrated,source_weights,created_at,updated_at')
     .single();
   if (error) throw error;
+  await markLessonAnalyzed(db, lessonId, userId, nowIso);
   return data as unknown as SavedReport;
+}
+
+/**
+ * 报告落库后把课例状态从「待分析」推进到「已分析」。
+ * 历史 bug：只写 reports 不回写 lessons.status，导致列表徽章永远停在「待分析」。
+ * 已复核（reviewed）不降级；失败不影响报告本身。
+ */
+async function markLessonAnalyzed(
+  db: DbClient,
+  lessonId: string,
+  userId: string,
+  nowIso: string,
+): Promise<void> {
+  try {
+    await db
+      .from('lessons')
+      .update({ status: 'analyzed', updated_at: nowIso })
+      .eq('id', lessonId)
+      .eq('user_id', userId)
+      .eq('status', 'draft');
+  } catch (e) {
+    console.warn('[analysis] 课例状态推进失败（不影响报告）', e);
+  }
 }
 
 /** 聚合 → 分析 → upsert 到 reports，返回落库行 */

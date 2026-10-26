@@ -241,7 +241,11 @@ export default function LessonDetailPage() {
     );
   }
 
-  const st = statusMeta(detail.status);
+  // 徽章以「是否已有报告」为准：历史数据里 lessons.status 没被回写，
+  // 已生成报告的课例会错误显示「待分析」。「已复核」保留不降级。
+  const st = statusMeta(
+    detail.status === 'reviewed' ? 'reviewed' : latestReport ? 'analyzed' : detail.status,
+  );
 
   return (
     <div className="space-y-6">

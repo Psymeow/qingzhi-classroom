@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { authenticate, AuthError } from '@/lib/auth/server';
+import { deriveAnalyzedStatus } from '@/lib/lesson/status';
 
 // ============================================================
 // 机构（组织）基础接口 · V1.11
@@ -51,7 +52,7 @@ export async function GET(req: NextRequest) {
         .limit(30),
     ]);
 
-    const list = lessons ?? [];
+    const list = await deriveAnalyzedStatus(db, lessons ?? []);
     const analyzed = list.filter((l) => l.status === 'analyzed' || l.status === 'reviewed').length;
 
     return NextResponse.json({

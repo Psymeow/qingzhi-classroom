@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { userClient, requireUser, AuthError } from '@/lib/auth/server';
+import { deriveAnalyzedStatus } from '@/lib/lesson/status';
 
 const createSchema = z.object({
   title: z.string().trim().min(1, '课例标题不能为空').max(255),
@@ -26,7 +27,12 @@ export async function GET(req: NextRequest) {
     if (status) q = q.eq('status', status);
     const { data, error } = await q;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ lessons: data ?? [] });
+    // 有报告即视为已分析：历史数据里 lessons.status 从未回写，列表徽章会一直停在「待分析」
+    const lessons = await deriveAnalyzedStatus(
+      db,
+      (data ?? []) as (Record<string, unknown> & { id: string; status?: string | null })[],
+    );
+    return NextResponse.json({ lessons });
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status });
     return NextResponse.json({ error: '获取课例列表失败' }, { status: 500 });
