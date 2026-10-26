@@ -950,9 +950,31 @@ export default function DataIntake({ lessonId, onUnauthorized }: { lessonId: str
               ref={transcriptAreaRef}
               value={transcript}
               onChange={(e) => updateText('transcript', e.target.value)}
-              placeholder="上传或粘贴师生对话转写文本，可含时间戳。例如：&#10;[00:01 - 00:02][教师]: 好，上课！&#10;00:01:20 师：请同学们观察这两个图形……"
-              className="min-h-40 max-h-[26rem] resize-y overflow-y-auto"
+              placeholder="上传或粘贴师生对话转写文本。建议每行一句，带时间戳与说话人标签，语义评分与逐句字幕会自动区分教师/学生/齐声/媒体。例如：&#10;[00:01 - 00:05][教师]: 好，上课！今天我们复习因式分解。&#10;[00:06 - 00:09][学生]: 老师好！&#10;[00:10 - 00:12][齐声]: 好，上课！&#10;[00:13 - 00:20][媒体]: （录音播放）同学们好……&#10;&#10;没有标签也可以先粘贴纯文本，再点上方「AI 标注说话人」自动补齐。"
+              className="min-h-40 max-h-[26rem] resize-y overflow-y-auto font-mono text-xs leading-relaxed"
             />
+            {labeling && (
+              <div className="flex items-start gap-2 rounded-lg border border-amber-200/70 bg-amber-50/70 px-3 py-2 text-xs leading-relaxed text-amber-800">
+                <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />
+                <span>
+                  正在用 AI 标注说话人（教师 / 学生 / 齐声 / 媒体）…长文稿可能需要一两分钟，期间可继续浏览页面。
+                </span>
+              </div>
+            )}
+            {labelNotice && (
+              <p
+                className={`flex items-start gap-1.5 text-[11px] leading-relaxed ${
+                  labelNotice.ok ? 'text-emerald-700' : 'text-destructive'
+                }`}
+              >
+                {labelNotice.ok ? (
+                  <CheckCircle2 className="mt-0.5 h-3 w-3 shrink-0" />
+                ) : (
+                  <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+                )}
+                <span>{labelNotice.text}</span>
+              </p>
+            )}
             {importNotice && (
               <p
                 className={`flex items-start gap-1.5 text-[11px] leading-relaxed ${
