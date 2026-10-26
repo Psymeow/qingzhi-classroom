@@ -17,9 +17,100 @@ export interface TimelineSegment {
   e: number;
   /** 段文本，不含时间码前缀 */
   t: string;
+  /** 说话人（归一化四类：教师 / 学生 / 齐声 / 媒体）；识别或文稿未标注时缺省 */
+  speaker?: string;
 }
 
-const TIMESTAMP_LINE = /^\s*\[?((?:\d{1,2}:)?\d{1,2}:\d{2})\]?\s*/;
+// ---------------- 说话人归一化 ----------------
+// 转写稿里的叫法五花八门（老师/师/T、生1/学生A、齐声说/全体、播放/旁白），
+// 统一归到教师 / 学生 / 齐声 / 媒体四类，前端标签与配色只认这四个。
+
+const SPEAKER_CANON: Array<[RegExp, string]> = [
+  [/^(教师|老师|师|T|Teacher)$/i, '教师'],
+  [/^(齐声(说|答|读|齐)?)|齐说|齐读|全体(同学|学生)?|合(说|答|读)$/, '齐声'],
+  [/^(媒体|播放(的)?(录音|音视频)?|录音|视频|旁白|音频|M|Media)$/i, '媒体'],
+  [/^(学生|同学|生\d*|学生\d*|男生|女生|S\d*)$/i, '学生'],
+];
+
+/** 说话人标签归一化；无法识别的叫法原样返回（不硬塞进四类，避免误导） */
+export function normalizeSpeaker(raw: string): string {
+  const s = raw.trim();
+  if (!s) return '';
+  for (const [re, canon] of SPEAKER_CANON) {
+    if (re.test(s)) return canon;
+  }
+  return s.slice(0, 8);
+}
+
+// 行首时间（区间）：[00:01 - 00:02] / [00:01] / 00:01:20 / 00:01-00:02 均可
+const TIME_RANGE_RE =
+  /^\s*\[?\s*((?:\d{1,2}:)?\d{1,2}:\d{2})\s*(?:[-~—]\s*((?:\d{1,2}:)?\d{1,2}:\d{2})\s*)?\]?\s*/;
+// 紧随时间码之后的说话人：[教师] / [齐声说] / 教师：/ 生1:（仅词表命中才算，防止把正文冒号误判成说话人）
+const LEAD_SPEAKER_BRACKET = /^\[([^\]]{1,8})\]\s*[:：]?\s*/;
+const LEAD_SPEAKER_COLON = /^([一-龥]{1,4}|[A-Za-z]\d?)\s*[:：]\s*/;
+
+interface ParsedLine {
+  s: number;
+  e: number | null;
+  speaker?: string;
+  text: string;
+}
+
+/** 行首元信息（时间码 + 说话人）剥离结果；供时间轴解析与语义评分共用 */
+export interface LeadMeta {
+  /** 行首时间码起点（毫秒）；无时间码时为 null */
+  s: number | null;
+  /** 行首区间终点（毫秒）；无区间或区间非法时为 null */
+  e: number | null;
+  speaker?: string;
+  text: string;
+}
+
+/**
+ * 剥离一行的行首时间码与说话人标签：
+ * `[00:01 - 00:02][教师]: 好，上课！` / `00:01:20 师：请看大屏幕` / `师：请看 08:12 处` 均可。
+ * 说话人只认词表命中（教师/学生/齐声/媒体及其常见叫法），防止把正文冒号误判成说话人。
+ */
+export function stripLeadMeta(line: string): LeadMeta {
+  const tm = line.match(TIME_RANGE_RE);
+  let s: number | null = null;
+  let e: number | null = null;
+  let rest = line;
+  if (tm) {
+    const start = clockToMs(tm[1]);
+    if (start !== null) {
+      s = start;
+      const end = tm[2] ? clockToMs(tm[2]) : null;
+      e = end !== null && end > start ? end : null;
+      rest = line.slice(tm[0].length);
+    }
+  }
+  let speaker: string | undefined;
+  const br = rest.match(LEAD_SPEAKER_BRACKET);
+  if (br) {
+    const canon = normalizeSpeaker(br[1]);
+    if (canon) speaker = canon;
+    rest = rest.slice(br[0].length);
+  } else {
+    const co = rest.match(LEAD_SPEAKER_COLON);
+    if (co) {
+      const canon = normalizeSpeaker(co[1]);
+      // 词表命中的短词+冒号才当说话人；「问题：xxx」这类正文开头不吞
+      if (canon && SPEAKER_CANON.some(([re]) => re.test(co[1].trim()))) {
+        speaker = canon;
+        rest = rest.slice(co[0].length);
+      }
+    }
+  }
+  return { s, e, speaker, text: rest.trim() };
+}
+
+/** 解析一行「[mm:ss - mm:ss][说话人]: 文本」；无时间码的行返回 null（并入上一段） */
+function parseTimedLine(line: string): ParsedLine | null {
+  const m = stripLeadMeta(line);
+  if (m.s === null) return null;
+  return { s: m.s, e: m.e, speaker: m.speaker, text: m.text };
+}
 
 /** 把 mm:ss / hh:mm:ss 换成毫秒；非法返回 null */
 export function clockToMs(clock: string): number | null {
@@ -42,18 +133,23 @@ export function msToClock(ms: number): string {
 }
 
 /**
- * 兜底：从「[08:12] 老师说……」这种逐行转写里解析时间轴。
+ * 兜底：从转写文本解析时间轴。支持两类行首：
+ * - 逐行时间码：`[08:12] 老师说……` / `08:12 老师说……`
+ * - 区间 + 说话人：`[00:01 - 00:02][教师]: 好，上课！`
  * 没有时间码的行并入上一段（不单独成段），第一段之前的内容丢弃（无时间无法定位）。
  */
 export function segmentsFromTranscript(text: string): TimelineSegment[] {
   if (!text) return [];
   const segs: TimelineSegment[] = [];
   for (const line of text.split(/\r?\n/)) {
-    const m = line.match(TIMESTAMP_LINE);
-    if (m) {
-      const start = clockToMs(m[1]);
-      if (start === null) continue;
-      segs.push({ s: start, e: start, t: line.slice(m[0].length).trim() });
+    const parsed = parseTimedLine(line);
+    if (parsed) {
+      segs.push({
+        s: parsed.s,
+        e: parsed.e ?? parsed.s,
+        t: parsed.text,
+        ...(parsed.speaker ? { speaker: parsed.speaker } : {}),
+      });
     } else if (segs.length && line.trim()) {
       // 无时间码的续行：并到上一段
       const last = segs[segs.length - 1];
@@ -70,18 +166,19 @@ export function segmentsFromTranscript(text: string): TimelineSegment[] {
   return segs;
 }
 
-/** 规范化 segments：按起点排序、补 end、丢弃空段 */
+/** 规范化 segments：按起点排序、补 end、丢弃空段、透传说话人 */
 export function normalizeSegments(input: unknown): TimelineSegment[] {
   if (!Array.isArray(input)) return [];
   const out: TimelineSegment[] = [];
   for (const raw of input) {
     if (!raw || typeof raw !== 'object') continue;
-    const r = raw as { s?: unknown; e?: unknown; t?: unknown };
+    const r = raw as { s?: unknown; e?: unknown; t?: unknown; speaker?: unknown };
     const s = Number(r.s);
     const e = Number(r.e);
     const t = typeof r.t === 'string' ? r.t.trim() : '';
     if (!Number.isFinite(s) || s < 0 || !t) continue;
-    out.push({ s, e: Number.isFinite(e) && e > s ? e : s, t });
+    const speaker = typeof r.speaker === 'string' ? normalizeSpeaker(r.speaker) : '';
+    out.push({ s, e: Number.isFinite(e) && e > s ? e : s, t, ...(speaker ? { speaker } : {}) });
   }
   out.sort((a, b) => a.s - b.s);
   for (let i = 0; i < out.length; i++) {

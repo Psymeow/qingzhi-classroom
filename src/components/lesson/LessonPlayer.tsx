@@ -23,6 +23,14 @@ interface TimelinePayload {
   audios: SourceMedia[];
 }
 
+/** 说话人四类的徽标配色：教师 / 学生 / 齐声 / 媒体；未标注的段不显示 */
+const SPEAKER_BADGE: Record<string, string> = {
+  教师: 'bg-blue-50 text-blue-700 ring-blue-200',
+  学生: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  齐声: 'bg-amber-50 text-amber-700 ring-amber-200',
+  媒体: 'bg-purple-50 text-purple-700 ring-purple-200',
+};
+
 /**
  * 课堂播放器：视频/音频 + 实时字幕。
  *
@@ -260,7 +268,9 @@ export default function LessonPlayer({ lessonId }: { lessonId: string }) {
         {hasMedia && !hasSegments && (
           <div className="rounded-lg border border-dashed border-border bg-muted/30 px-3 py-4 text-[13px] leading-5 text-muted-foreground">
             还没有逐句字幕。到「数据接入」点素材上的「识别为文稿」，或上传带{' '}
-            <code className="rounded bg-muted px-1 py-px font-mono text-[11px]">[08:12]</code> 行首时间码的转写文稿。
+            <code className="rounded bg-muted px-1 py-px font-mono text-[11px]">[08:12]</code> 行首时间码的转写文稿；文稿里标注{' '}
+            <code className="rounded bg-muted px-1 py-px font-mono text-[11px]">[教师] / [学生] / [齐声] / [媒体]</code>{' '}
+            说话人时，字幕会按说话人分色显示。
           </div>
         )}
 
@@ -289,6 +299,15 @@ export default function LessonPlayer({ lessonId }: { lessonId: string }) {
                   >
                     {msToClock(seg.s)}
                   </span>
+                  {seg.speaker && (
+                    <span
+                      className={`mt-px inline-flex w-8 shrink-0 justify-center rounded px-1 py-px text-[10px] font-medium ring-1 ring-inset ${
+                        SPEAKER_BADGE[seg.speaker] ?? 'bg-muted text-muted-foreground ring-border'
+                      }`}
+                    >
+                      {seg.speaker}
+                    </span>
+                  )}
                   <span className={`min-w-0 text-[13px] leading-5 ${on ? 'font-medium' : 'text-foreground/85'}`}>
                     {seg.t}
                   </span>

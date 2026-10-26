@@ -1,6 +1,7 @@
 'use client';
 
 // V1.3 表一内涵评价：认知（3 类 11 指标）+ 情感（4 类 8 指标），每指标下细化观察点评分明细。
+// V1.19：认知/情感两个一级内涵各挂一段可展开的 AI 四段式解读（与五维维度解读同款）。
 import { useState } from 'react';
 import { Brain, Heart, ChevronDown, Quote, FileQuestion } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -8,12 +9,14 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Progress } from '@/components/ui/progress';
 import type {
+  DimensionInterpretation,
   EssenceEvaluation,
   EssenceDomainResult,
   EssenceIndicatorResult,
   EssencePointResult,
 } from '@/lib/evaluation/types';
 import { POINT_SOURCE_LABEL } from '@/lib/evaluation/essence-points';
+import DimensionInterpretationBlock, { useEssenceInterpretations } from './DimensionInterpretation';
 
 function scoreColor(v: number | null | undefined): string {
   if (v == null) return 'bg-muted-foreground/30';
@@ -168,11 +171,21 @@ function DomainBlock({
   icon,
   accent,
   domain,
+  interp,
+  loading,
+  error,
+  onRetry,
 }: {
   title: string;
   icon: React.ReactNode;
   accent: string;
   domain: EssenceDomainResult;
+  /** 本域的 AI 解读（认知或情感）；未生成时不渲染 */
+  interp?: DimensionInterpretation | null;
+  /** 本课内涵解读整体生成状态 */
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
 }) {
   // 按一级类别（策略型/批判型/…）保持出现顺序分组
   const groups: { category: string; items: EssenceIndicatorResult[] }[] = [];
@@ -204,6 +217,12 @@ function DomainBlock({
           {domain.score == null ? '—' : domain.score.toFixed(1)}
         </span>
       </div>
+      <DimensionInterpretationBlock
+        interpretation={interp}
+        loading={loading}
+        error={error}
+        onRetry={onRetry}
+      />
       {(pendingPoints > 0 || coverLow) && (
         <p className="flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-800 print:border-amber-300 print:bg-transparent">
           <FileQuestion className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -234,7 +253,33 @@ function DomainBlock({
   );
 }
 
-export default function EssenceEvalView({ eval: ev }: { eval: EssenceEvaluation }) {
+interface EssenceEvalViewProps {
+  eval: EssenceEvaluation;
+  /** 课例 ID：提供时按需生成内涵解读（离线样例不传即不生成） */
+  lessonId?: string;
+  /** 报告生成时间：重新分析后旧解读作废 */
+  genKey?: string;
+  /** 报告里已有的内涵解读 */
+  existing?: DimensionInterpretation[] | null;
+  /** 是否允许按需生成（关掉「AI 深度分析」的报告不生成） */
+  enabled?: boolean;
+}
+
+export default function EssenceEvalView({
+  eval: ev,
+  lessonId,
+  genKey,
+  existing,
+  enabled = false,
+}: EssenceEvalViewProps) {
+  const { items, loading, error, retry } = useEssenceInterpretations({
+    lessonId: lessonId ?? '',
+    existing: existing ?? null,
+    genKey: genKey ?? '',
+    enabled: enabled && !!lessonId,
+  });
+  const interpFor = (code: string) => items?.find((i) => i.dimension_code === code) ?? null;
+
   if (!ev.llm_used) {
     return (
       <Card className="border-dashed">
@@ -284,12 +329,20 @@ export default function EssenceEvalView({ eval: ev }: { eval: EssenceEvaluation 
         icon={<Brain className="h-4 w-4" />}
         accent="text-blue-600"
         domain={ev.cognitive}
+        interp={interpFor('cognitive')}
+        loading={loading}
+        error={error}
+        onRetry={retry}
       />
       <DomainBlock
         title="情感 · 学习情感素养（8 个二级指标）"
         icon={<Heart className="h-4 w-4" />}
         accent="text-rose-600"
         domain={ev.affective}
+        interp={interpFor('affective')}
+        loading={loading}
+        error={error}
+        onRetry={retry}
       />
     </section>
   );

@@ -498,7 +498,13 @@ export default function AnalysisPanel({ lessonId, dimensions, onUnauthorized, on
             </TabsContent>
             <TabsContent value="essence">
               {essenceEval?.llm_used ? (
-                <EssenceEvalView eval={essenceEval} />
+                <EssenceEvalView
+                  eval={essenceEval}
+                  lessonId={lessonId}
+                  genKey={report?.result.generated_at ?? ''}
+                  existing={report?.result.essence_interpretations ?? null}
+                  enabled={!!report && report.result.ai_meta?.enabled !== false}
+                />
               ) : (
                 <div className="rounded-xl border border-dashed border-border bg-muted/30 px-4 py-8 text-center">
                   <p className="text-sm font-medium text-foreground">本课例暂未生成认知·情感观察点</p>

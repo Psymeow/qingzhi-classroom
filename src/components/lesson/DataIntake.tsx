@@ -29,6 +29,7 @@ import {
   AlertCircle,
   PenLine,
   Video,
+  Users,
 } from 'lucide-react';
 import {
   assetsApi,
@@ -99,6 +100,11 @@ export default function DataIntake({ lessonId, onUnauthorized }: { lessonId: str
   const [parseFail, setParseFail] = useState<{ id: string; kind: AssetKind; name: string } | null>(null);
   // 转写文稿「上传文稿」：纯文本浏览器端就地读入；Word/PDF 走素材上传 + 服务端解析
   const [importingTranscript, setImportingTranscript] = useState(false);
+  // V1.19 AI 标注说话人：转写文稿逐行标注教师/学生/齐声/媒体（长文稿需数十秒）
+  const [labeling, setLabeling] = useState(false);
+  const [labelNotice, setLabelNotice] = useState<{ ok: boolean; text: string } | null>(null);
+  // V1.19 同类素材重复上传：以最新为准——确认后先传新文件，再自动删除旧素材
+  const [overwritePending, setOverwritePending] = useState<{ kind: AssetKind; file: File; olds: Asset[] } | null>(null);
   // 上传进度（字节 + 阶段）：进度条给用户等待预期；同一时刻仅一个上传在进行
   const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
   const [importNotice, setImportNotice] = useState<{ ok: boolean; text: string } | null>(null);
@@ -316,6 +322,15 @@ export default function DataIntake({ lessonId, onUnauthorized }: { lessonId: str
       activeKindRef.current = null;
       return;
     }
+    // V1.19：同类素材重复上传以最新为准——先让用户确认覆盖，
+    // 确认后上传新文件、自动删除旧素材并提示重新分析。
+    const olds = assets.filter((a) => a.kind === kind);
+    if (olds.length > 0) {
+      setUploadingKind(null);
+      activeKindRef.current = null;
+      setOverwritePending({ kind, file, olds });
+      return;
+    }
     try {
       const asset = await assetsApi.upload(lessonId, file, kind, undefined, (p) => setUploadProgress(p));
       await loadAssets();
@@ -323,6 +338,44 @@ export default function DataIntake({ lessonId, onUnauthorized }: { lessonId: str
       if (kind === 'task_sheet' || kind === 'observer_record' || kind === 'lesson_plan') {
         await runParse(asset.id);
       }
+    } catch (err) {
+      setListError(err instanceof Error ? err.message : '上传失败，请稍后重试');
+    } finally {
+      setUploadingKind(null);
+      activeKindRef.current = null;
+      setUploadProgress(null);
+    }
+  }
+
+  // 覆盖确认后的执行：先上传新素材，成功后删除被覆盖的旧素材（单个失败不阻断主流程）
+  async function confirmOverwrite() {
+    const pending = overwritePending;
+    setOverwritePending(null);
+    if (!pending) return;
+    const { kind, file, olds } = pending;
+    setUploadingKind(kind);
+    activeKindRef.current = kind;
+    try {
+      const asset = await assetsApi.upload(lessonId, file, kind, undefined, (p) => setUploadProgress(p));
+      for (const old of olds) {
+        try {
+          await assetsApi.remove(lessonId, old.id);
+        } catch {
+          // 旧素材删除失败不阻断：新素材已生效，旧素材可在列表手动删除
+        }
+      }
+      setAssets((prev) => prev.filter((a) => !olds.some((o) => o.id === a.id)));
+      setListError(null);
+      // 任务单 / 观察记录 / 教学设计：上传后立即解析为文本，参与 AI 语义评分
+      if (kind === 'task_sheet' || kind === 'observer_record' || kind === 'lesson_plan') {
+        await runParse(asset.id);
+      } else if (isAvMedia(kind)) {
+        setTranscribeNotice({
+          ok: true,
+          text: `已用「${file.name}」覆盖之前的${olds.length}个${ASSET_KIND_LABEL[kind]}素材。旧视频已删除；如已有转写文稿或分析结果，是基于旧视频产出的，请点新素材行的「识别为文稿」并重新运行分析。`,
+        });
+      }
+      await loadAssets();
     } catch (err) {
       setListError(err instanceof Error ? err.message : '上传失败，请稍后重试');
     } finally {
@@ -371,9 +424,9 @@ export default function DataIntake({ lessonId, onUnauthorized }: { lessonId: str
             : '';
         setTranscribeNotice({
           ok: true,
-          text: `已识别 ${r.char_count.toLocaleString()} 字课堂文稿${mins}${axis}，已写入下方转写文稿并参与自动分析${
+          text: `已识别 ${r.char_count.toLocaleString()} 字课堂文稿${mins}${axis}，每行已带时间戳并写入下方转写文稿、参与自动分析${
             r.truncated ? '（内容过长，已截断至长度上限）' : ''
-          }`,
+          }。ASR 无法区分说话人，可点「AI 标注说话人」补齐教师/学生/齐声/媒体标签。`,
         });
         await loadAssets();
       } catch (e) {
@@ -385,6 +438,33 @@ export default function DataIntake({ lessonId, onUnauthorized }: { lessonId: str
     },
     [lessonId, handleAuth, loadAssets],
   );
+
+  // V1.19 AI 标注说话人：DeepSeek 逐行判断教师/学生/齐声/媒体，
+  // 服务端改写文稿为 `[mm:ss - mm:ss][教师]: 内容` 并落库，这里同步本地显示。
+  const runLabelSpeakers = useCallback(async () => {
+    if (!textsRef.current.transcript?.trim()) {
+      setLabelNotice({ ok: false, text: '请先上传或粘贴课堂转写文稿，再标注说话人。' });
+      return;
+    }
+    setLabeling(true);
+    setLabelNotice(null);
+    try {
+      const r = await inputsApi.labelSpeakers(lessonId);
+      setTranscript(r.transcript);
+      textsRef.current = { ...textsRef.current, transcript: r.transcript };
+      dirtyRef.current = true;
+      setSaveState('saved');
+      setLabelNotice({
+        ok: true,
+        text: `已为 ${r.labeled_lines.toLocaleString()} 行文稿标注说话人（教师 / 学生 / 齐声 / 媒体），每行已带时间戳与说话人标签${r.capped ? '；文稿过长，超出上限的部分未标注' : ''}。语义评分将同步区分说话人。`,
+      });
+    } catch (e) {
+      handleAuth(e);
+      setLabelNotice({ ok: false, text: e instanceof Error ? e.message : '说话人标注失败，请稍后重试' });
+    } finally {
+      setLabeling(false);
+    }
+  }, [lessonId, handleAuth]);
 
   // P0-6：稳定的防抖保存函数。不依赖三段文本 state（只读 ref），
   // 因此 onChange 当次渲染调用的就是最新函数，定时器里拿到的是最新输入。
@@ -808,23 +888,43 @@ export default function DataIntake({ lessonId, onUnauthorized }: { lessonId: str
           <div className="space-y-1.5">
             <div className="flex items-start justify-between gap-2">
               <label className="text-xs font-medium text-muted-foreground">
-                课堂转写文稿（可上传 .txt / Word / PDF、手动粘贴，或由上方音视频一键识别）
+                课堂转写文稿（可上传 .txt / Word / PDF、手动粘贴，或由上方音视频一键识别；建议每行一句，带{' '}
+                <code className="rounded bg-muted px-1 py-px font-mono text-[11px]">[时间戳]</code> 与{' '}
+                <code className="rounded bg-muted px-1 py-px font-mono text-[11px]">[说话人]</code> 标签）
               </label>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-7 shrink-0 text-xs"
-                disabled={importingTranscript}
-                onClick={() => transcriptFileRef.current?.click()}
-              >
-                {importingTranscript ? (
-                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <FileUp className="mr-1.5 h-3.5 w-3.5" />
-                )}
-                上传文稿
-              </Button>
+              <span className="flex shrink-0 items-center gap-1.5">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs"
+                  disabled={labeling || !transcript.trim()}
+                  onClick={runLabelSpeakers}
+                  title="用 AI 为每行判断教师/学生/齐声/媒体，并写入时间戳与说话人标签"
+                >
+                  {labeling ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Users className="mr-1.5 h-3.5 w-3.5" />
+                  )}
+                  AI 标注说话人
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs"
+                  disabled={importingTranscript}
+                  onClick={() => transcriptFileRef.current?.click()}
+                >
+                  {importingTranscript ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <FileUp className="mr-1.5 h-3.5 w-3.5" />
+                  )}
+                  上传文稿
+                </Button>
+              </span>
             </div>
             <input
               ref={transcriptFileRef}
@@ -913,6 +1013,43 @@ export default function DataIntake({ lessonId, onUnauthorized }: { lessonId: str
             >
               {deleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               删除
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* V1.19 同类素材重复上传：以最新为准，确认后新文件上传成功即自动删除旧素材 */}
+      <AlertDialog
+        open={Boolean(overwritePending)}
+        onOpenChange={(open) => !open && setOverwritePending(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              覆盖已有的{ASSET_KIND_LABEL[overwritePending?.kind ?? 'av_video']}？
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  本课例已上传 {overwritePending?.olds.length ?? 0} 个
+                  {ASSET_KIND_LABEL[overwritePending?.kind ?? 'av_video']}
+                  （{overwritePending?.olds.map((o) => o.file_name).join('、')}）。
+                  同类素材以最新上传为准，上传成功后旧素材将<b className="text-foreground">自动删除</b>
+                  （此操作不可恢复）。
+                </p>
+                {isAvMedia(overwritePending?.kind ?? 'av_video') && (
+                  <p className="text-foreground/80">
+                    注意：旧视频对应的转写文稿与分析结果是基于旧视频产出的，覆盖后需对新视频重新
+                    「识别为文稿」并重新运行分析。
+                  </p>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={(e) => { e.preventDefault(); confirmOverwrite(); }}>
+              上传新文件并覆盖
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

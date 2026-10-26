@@ -94,6 +94,82 @@ export function useDimensionInterpretations({
   return { items, loading, error, retry };
 }
 
+// ---------- 表一内涵观察点解读（V1.19）：认知/情感各一段四段长文 ----------
+// 与五维解读同款按需生成（独立请求、独立去重），复用同一组件渲染。
+
+const essenceInflight = new Map<string, Promise<DimensionInterpretation[]>>();
+
+function ensureEssenceInterpretations(lessonId: string): Promise<DimensionInterpretation[]> {
+  const hit = essenceInflight.get(lessonId);
+  if (hit) return hit;
+  const p = analysisApi.generateEssenceInterpretations(lessonId).finally(() => {
+    essenceInflight.delete(lessonId);
+  });
+  essenceInflight.set(lessonId, p);
+  return p;
+}
+
+interface UseEssenceInterpretationsOpts {
+  lessonId: string;
+  /** 报告里已有的内涵解读（旧报告缺省时按需补生成） */
+  existing?: DimensionInterpretation[] | null;
+  /** 报告生成时间：重新分析后旧解读作废，状态整体复位 */
+  genKey: string;
+  /** 是否允许按需生成：离线样例 / 关闭「AI 深度分析」的报告不生成 */
+  enabled: boolean;
+}
+
+/** 取表一内涵（认知/情感）的 AI 解读；缺失时自动（去重）调用一次生成接口 */
+export function useEssenceInterpretations({
+  lessonId,
+  existing,
+  genKey,
+  enabled,
+}: UseEssenceInterpretationsOpts) {
+  const [items, setItems] = useState<DimensionInterpretation[] | null>(existing ?? null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const startedKeyRef = useRef<string | null>(null);
+  const existingRef = useRef(existing);
+  // 渲染期写 ref 会触发 react-hooks/refs 报错；改为 effect 内同步，
+  // 且必须声明在下方读取它的 effect 之前，保证同一提交内先写后读。
+  useEffect(() => {
+    existingRef.current = existing;
+  }, [existing]);
+
+  useEffect(() => {
+    const own = existingRef.current ?? null;
+    setItems(own);
+    setError(null);
+    if (own && own.length > 0) return;
+    if (!enabled || !lessonId) return;
+    const myKey = `${genKey}:${attempt}`;
+    if (startedKeyRef.current === myKey) return;
+    startedKeyRef.current = myKey;
+    let cancelled = false;
+    setLoading(true);
+    ensureEssenceInterpretations(lessonId)
+      .then((arr) => {
+        if (cancelled) return;
+        setItems(arr.length > 0 ? arr : null);
+        if (arr.length === 0) setError('未生成解读内容');
+      })
+      .catch((e) => {
+        if (!cancelled) setError(friendlyError(e));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [genKey, attempt, enabled, lessonId]);
+
+  const retry = () => setAttempt((a) => a + 1);
+  return { items, loading, error, retry };
+}
+
 function InterpSection({ label, text }: { label: string; text: string }) {
   return (
     <div>

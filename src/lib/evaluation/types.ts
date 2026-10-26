@@ -312,6 +312,11 @@ export interface AnalysisReport {
   ai_commentary?: AiCommentary;
   /** 各维度的 AI 解读（四段长文，查看报告时按需生成并回写），旧报告缺省 */
   dimension_interpretations?: DimensionInterpretation[];
+  /**
+   * 表一内涵观察点的 AI 解读（V1.19）：认知/情感各一段四段长文，
+   * 复用 DimensionInterpretation 结构，dimension_code = 'cognitive' / 'affective'；
+   * 查看报告时按需生成并回写，旧报告缺省 */
+  essence_interpretations?: DimensionInterpretation[];
   /** 课型专属分析模型评价结果（未设置或无法识别课型时为 null） */
   lesson_type_eval?: LessonTypeEvaluation | null;
   /** 表一内涵框架细化评价：认知（高阶思维 11 指标）+ 情感（情感素养 8 指标）观察点 */

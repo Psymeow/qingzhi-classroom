@@ -526,7 +526,13 @@ export default function ReportView({
       {/* 表一内涵评价：认知 11 指标 + 情感 8 指标，57 个细化观察点；未生成时固定占位 */}
       {result.essence_eval?.llm_used ? (
         <div className="break-inside-avoid">
-          <EssenceEvalView eval={result.essence_eval} />
+          <EssenceEvalView
+            eval={result.essence_eval}
+            lessonId={offlineSample ? '' : lessonId}
+            genKey={result.generated_at}
+            existing={result.essence_interpretations ?? null}
+            enabled={!offlineSample && result.ai_meta?.enabled !== false}
+          />
         </div>
       ) : (
         <Card className="shadow-card">

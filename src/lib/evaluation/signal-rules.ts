@@ -1,4 +1,5 @@
 import type { DataSource } from "./types";
+import { normalizeSpeaker, stripLeadMeta } from "@/lib/report/timeline";
 
 // ============================================================
 // 语义匹配规则（可配置、可迭代）
@@ -45,7 +46,7 @@ export const INDICATOR_SIGNAL_RULES: SignalRule[] = [
   { indicator_code: "D3-8", positive: ["真实", "数据不能改", "责任", "帮助", "客观", "如实", "服务", "社区", "伦理"], strong_score: 6 },
 ];
 
-/** 转写说话人切分行（支持 “师：”“生1：”“[00:12] 生：” 等） */
+/** 转写说话人切分行（支持 “师：”“生1：”“[00:12] 生：”“[00:01 - 00:02][教师]:” 等） */
 export interface Utterance {
   speaker?: string;
   time_sec?: number;
@@ -53,7 +54,9 @@ export interface Utterance {
 }
 
 const TIME_RE = /\[?(\d{1,2}):(\d{2})(?::\d{2})?\]?/;
-const SPEAKER_RE = /^\s*(?:\[[^\]]*\]\s*)?(师|老师|生\d*|学生\d*|男生|女生|T|S|Speaker\s*\d+|[A-Za-z]+)\s*[:：、.]\s*/;
+// 无时间码的行仍可单独标注说话人（“师：xxx”“教师：xxx”），词表与时间轴解析共用一套归一化
+const SOLO_SPEAKER_RE =
+  /^\s*(教师|老师|师|学生|同学|生\d*|学生\d*|男生|女生|齐声(说|答|读|齐)?|齐说|齐读|媒体|录音|视频|旁白|音频|T|Teacher|M|Media|S\d*)\s*[:：、.]\s*/;
 
 export function parseTranscript(raw: string): Utterance[] {
   if (!raw) return [];
@@ -62,6 +65,15 @@ export function parseTranscript(raw: string): Utterance[] {
     .map((l) => l.trim())
     .filter(Boolean)
     .map((line) => {
+      // 带行首时间码（含 [mm:ss - mm:ss] 区间）的行：与课堂时间轴同一套解析与说话人归一化
+      const lead = stripLeadMeta(line);
+      if (lead.s !== null) {
+        return {
+          speaker: lead.speaker,
+          time_sec: Math.round(lead.s / 1000),
+          text: lead.text,
+        };
+      }
       let time_sec: number | undefined;
       const tm = line.match(TIME_RE);
       if (tm) {
@@ -71,9 +83,9 @@ export function parseTranscript(raw: string): Utterance[] {
         line = line.replace(TIME_RE, "").trim();
       }
       let speaker: string | undefined;
-      const sp = line.match(SPEAKER_RE);
+      const sp = line.match(SOLO_SPEAKER_RE);
       if (sp) {
-        speaker = sp[1];
+        speaker = normalizeSpeaker(sp[1]);
         line = line.slice(sp[0].length).trim();
       }
       return { speaker, time_sec, text: line };

@@ -495,6 +495,13 @@ export const inputsApi = {
     },
   ) =>
     api.put<{ input: AnalysisInput | null }>(`/api/lessons/${lessonId}/inputs`, body).then((r) => r.input),
+  /** AI 为转写文稿逐行标注说话人（教师/学生/齐声/媒体），返回改写后的文稿 */
+  labelSpeakers: (lessonId: string, opts?: { signal?: AbortSignal }) =>
+    api.post<{ transcript: string; labeled_lines: number; capped: boolean }>(
+      `/api/lessons/${lessonId}/transcript/label-speakers`,
+      {},
+      opts?.signal ? { signal: opts.signal } : undefined,
+    ),
 };
 
 // ---------- 人工标注（整份 JSON，version 自增） ----------
@@ -579,6 +586,18 @@ export const analysisApi = {
   ): Promise<DimensionInterpretation[]> => {
     const r = await api.post<{ interpretations: DimensionInterpretation[] }>(
       `/api/lessons/${lessonId}/analysis/interpretation`,
+      {},
+      opts?.signal ? { signal: opts.signal } : undefined,
+    );
+    return r.interpretations ?? [];
+  },
+  /** 按需生成表一内涵观察点 AI 解读（认知/情感各一段四段长文），服务端生成后写回报告 */
+  generateEssenceInterpretations: async (
+    lessonId: string,
+    opts?: { signal?: AbortSignal },
+  ): Promise<DimensionInterpretation[]> => {
+    const r = await api.post<{ interpretations: DimensionInterpretation[] }>(
+      `/api/lessons/${lessonId}/analysis/essence-interpretation`,
       {},
       opts?.signal ? { signal: opts.signal } : undefined,
     );

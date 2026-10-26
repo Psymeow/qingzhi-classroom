@@ -10,6 +10,7 @@ import { ensureLessonOwned } from '@/lib/auth/lesson';
 import { signObjectUrl, uploadObject } from '@/lib/storage/s3';
 import { buildTimedTranscript, probeAudioTimeline } from '@/lib/asr/timeline';
 import { alignmentAcceptable, buildWindowSegments, downloadToFile } from '@/lib/asr/windows';
+import { msToClock } from '@/lib/report/timeline';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -157,7 +158,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       }
     }
 
-    const clipped = built.text;
+    // 写回的文稿按行带时间码（[mm:ss - mm:ss] 文本），与逐句字幕一致，
+    // 让「课堂转写文稿」文本框不再是无时间戳的整块文字
+    const clipped = segments.length
+      ? segments.map((s) => `[${msToClock(s.s)} - ${msToClock(s.e)}] ${s.t}`).join('\n').slice(0, TRANSCRIPT_MAX_CHARS)
+      : built.text;
     const truncated = built.truncated;
     if (!clipped) {
       return NextResponse.json(
