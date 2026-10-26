@@ -328,9 +328,12 @@ export default function AnalysisPanel({ lessonId, dimensions, onUnauthorized, on
           </div>
 
           <Tabs defaultValue="dimensions">
-            <TabsList>
-              <TabsTrigger value="dimensions">五维结果与证据</TabsTrigger>
-              <TabsTrigger value="lesson-type">
+            {/* 窄屏 5 个标签放不下会把整页撑出横向滚动，改为标签栏内自身横滑 */}
+            <TabsList className="h-auto w-full justify-start overflow-x-auto bg-muted p-[3px] sm:inline-flex sm:w-fit sm:justify-center">
+              <TabsTrigger value="dimensions" className="shrink-0">
+                五维结果与证据
+              </TabsTrigger>
+              <TabsTrigger value="lesson-type" className="shrink-0">
                 课型要点
                 {lessonTypeEval && (
                   <Badge variant="secondary" className="ml-1.5 h-4 px-1 text-[10px]">
@@ -338,8 +341,10 @@ export default function AnalysisPanel({ lessonId, dimensions, onUnauthorized, on
                   </Badge>
                 )}
               </TabsTrigger>
-              <TabsTrigger value="essence">认知·情感观察点</TabsTrigger>
-              <TabsTrigger value="review">
+              <TabsTrigger value="essence" className="shrink-0">
+                认知·情感观察点
+              </TabsTrigger>
+              <TabsTrigger value="review" className="shrink-0">
                 冲突复核
                 {reviewDims.length > 0 && (
                   <Badge variant="secondary" className="ml-1.5 h-4 px-1 text-[10px]">
@@ -347,7 +352,7 @@ export default function AnalysisPanel({ lessonId, dimensions, onUnauthorized, on
                   </Badge>
                 )}
               </TabsTrigger>
-              <TabsTrigger value="ai">
+              <TabsTrigger value="ai" className="shrink-0">
                 AI 教学评语
                 {commentary && <Sparkles className="ml-1.5 h-3 w-3 text-primary" />}
               </TabsTrigger>

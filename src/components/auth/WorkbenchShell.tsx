@@ -67,9 +67,10 @@ export default function WorkbenchShell({ children }: { children: React.ReactNode
     <div className="app-surface min-h-screen">
       <header className="sticky top-0 z-30 border-b border-border/70 bg-background/80 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
-          <Link href="/" className="group flex items-center gap-2.5">
+          <Link href="/" className="group flex shrink-0 items-center gap-2.5">
             <BrandLogo size="sm" />
-            <span className="flex flex-col leading-none">
+            {/* 窄屏只留 logo：右侧图标 + 账户胶囊已占满一行，文字会被挤成竖排重叠 */}
+            <span className="hidden whitespace-nowrap sm:flex sm:flex-col sm:leading-none">
               <span className="text-[15px] font-semibold text-foreground">情智相长</span>
               <span className="mt-0.5 text-[11px] tracking-wide text-muted-foreground">
                 课堂分析工作台
@@ -113,7 +114,7 @@ export default function WorkbenchShell({ children }: { children: React.ReactNode
                   <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-gradient text-white">
                     <UserRound className="h-3.5 w-3.5" />
                   </span>
-                  <span className="max-w-[160px] truncate text-xs text-foreground">
+                  <span className="max-w-[88px] truncate text-xs text-foreground sm:max-w-[160px]">
                     {email || '账户'}
                   </span>
                   <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
