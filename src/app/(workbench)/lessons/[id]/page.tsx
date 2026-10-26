@@ -251,10 +251,29 @@ export default function LessonDetailPage() {
             <h1 className="text-2xl font-semibold text-foreground">{detail.title}</h1>
             <Badge className={st.cls}>{st.label}</Badge>
           </div>
-          <p className="mt-1.5 text-sm text-muted-foreground">
-            {detail.school || '学校未填'} · {detail.grade_class || '班级未填'} ·{' '}
-            {lessonTypeLabel(detail.lesson_type)}
-          </p>
+          {/* 基本信息一行读懂（对齐 AIC 抬头）：窄屏宽屏同一套，不再单开摘要卡 */}
+          <dl className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+            <Info label="教师" value={detail.teacher_name} />
+            <Info label="班级" value={detail.grade_class} />
+            <Info label="学校" value={detail.school} />
+            <Info label="课型" value={lessonTypeLabel(detail.lesson_type)} />
+            <Info label="日期" value={formatDate(detail.lesson_date)} />
+            <Info
+              label="时长"
+              value={detail.duration_sec ? `${Math.round(detail.duration_sec / 60)} 分钟` : undefined}
+            />
+            <Info label="素材" value={`${detail.assets?.length ?? 0} 个`} />
+            <Info
+              label="标注"
+              title={
+                detail.annotation
+                  ? `标注保存计数 v${detail.annotation.version}（内部乐观锁递增，仅供排障）`
+                  : undefined
+              }
+              value={detail.annotation ? annotationStatusText(detail.annotation.updated_at) : undefined}
+            />
+            <Info label="报告" value={detail.report ? `${detail.report.total_score} 分` : undefined} />
+          </dl>
         </div>
         {!editing ? (
           <Button variant="outline" className="rounded-lg" onClick={() => setEditing(true)}>
@@ -312,70 +331,9 @@ export default function LessonDetailPage() {
         </Card>
       )}
 
-      {/* 层级化布局：桌面端 左侧模块导航 + 中间常驻播放器 + 右侧内容区；窄屏降级为摘要条 + 横向标签 */}
-      <div className="grid items-start gap-4 md:grid-cols-[224px_minmax(0,1fr)] md:gap-6 lg:grid-cols-[200px_352px_minmax(0,1fr)] lg:gap-5 2xl:grid-cols-[216px_400px_minmax(0,1fr)] 2xl:gap-6">
-        <aside className="hidden md:block">
-          <div className="sticky top-20 space-y-3">
-            <nav aria-label="课例模块导航" className="rounded-xl border border-border/70 bg-card/70 p-1.5 shadow-xs">
-              <p className="px-2.5 pb-1 pt-2 text-[11px] font-medium tracking-wider text-muted-foreground">
-                课例模块
-              </p>
-              {TAB_META.map((t) => {
-                const on = activeTab === t.value;
-                const Icon = t.icon;
-                return (
-                  <button
-                    key={t.value}
-                    type="button"
-                    onClick={() => switchTab(t.value)}
-                    aria-current={on ? 'page' : undefined}
-                    title={t.hint}
-                    className={`relative flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors ${
-                      on ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
-                    }`}
-                  >
-                    {on && (
-                      <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-primary" aria-hidden />
-                    )}
-                    <Icon className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-                    <span className="min-w-0">
-                      <span className="block text-sm font-medium leading-5">{t.label}</span>
-                      <span className="mt-0.5 block text-[11px] leading-4 text-muted-foreground">{t.hint}</span>
-                    </span>
-                  </button>
-                );
-              })}
-            </nav>
-
-            <div className="rounded-xl border border-border/70 bg-card/70 p-3 shadow-xs">
-              <p className="text-[11px] font-medium tracking-wider text-muted-foreground">课堂信息</p>
-              <dl className="mt-2 space-y-1.5">
-                <NavInfo label="教师" value={detail.teacher_name} />
-                <NavInfo label="班级" value={detail.grade_class} />
-                <NavInfo label="学校" value={detail.school} />
-                <NavInfo label="课型" value={lessonTypeLabel(detail.lesson_type)} />
-                <NavInfo label="日期" value={formatDate(detail.lesson_date)} />
-                <NavInfo
-                  label="时长"
-                  value={detail.duration_sec ? `${Math.round(detail.duration_sec / 60)} 分钟` : undefined}
-                />
-                <NavInfo label="素材" value={`${detail.assets?.length ?? 0} 个`} />
-                <NavInfo
-                  label="标注"
-                  title={
-                    detail.annotation
-                      ? `标注保存计数 v${detail.annotation.version}（内部乐观锁递增，仅供排障）`
-                      : undefined
-                  }
-                  value={detail.annotation ? annotationStatusText(detail.annotation.updated_at) : undefined}
-                />
-                <NavInfo label="报告" value={detail.report ? `${detail.report.total_score} 分` : undefined} />
-              </dl>
-            </div>
-          </div>
-        </aside>
-
-        {/* 中间栏（lg+ 常驻）：课堂录像 + 实时字幕。切任何板块都在，右侧证据/问答引用一键跳转。
+      {/* AIC 看板式两栏：左列常驻播放器（sticky 跟随），右列板块标签 + 内容；页头已含全部基本信息 */}
+      <div className="grid items-start gap-5 lg:grid-cols-[360px_minmax(0,1fr)] lg:gap-6 xl:grid-cols-[400px_minmax(0,1fr)]">
+        {/* 左列（lg+ 常驻）：课堂录像 + 实时字幕。切任何板块都在，右侧证据/问答引用一键跳转。
             窄屏不进这条轨道（避免挤压内容区），改为在「课堂切片」标签里补一个实例。 */}
         <div className="hidden lg:block">
           <div className="sticky top-20">
@@ -384,31 +342,7 @@ export default function LessonDetailPage() {
         </div>
 
         <div className="min-w-0 space-y-4">
-          {/* 窄屏：一行摘要 + 横向标签（桌面端信息在左栏、导航在左侧） */}
-          <dl className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-border/70 bg-muted/30 px-4 py-2.5 md:hidden">
-            <Info label="教师" value={detail.teacher_name} />
-            <Info label="班级" value={detail.grade_class} />
-            <Info label="学校" value={detail.school} />
-            <Info label="课型" value={lessonTypeLabel(detail.lesson_type)} />
-            <Info label="日期" value={formatDate(detail.lesson_date)} />
-            <Info
-              label="时长"
-              value={detail.duration_sec ? `${Math.round(detail.duration_sec / 60)} 分钟` : undefined}
-            />
-            <Info label="素材" value={`${detail.assets?.length ?? 0} 个`} />
-            <Info
-              label="标注"
-              title={
-                detail.annotation
-                  ? `标注保存计数 v${detail.annotation.version}（内部乐观锁递增，仅供排障）`
-                  : undefined
-              }
-              value={detail.annotation ? annotationStatusText(detail.annotation.updated_at) : undefined}
-            />
-            <Info label="报告" value={detail.report ? `${detail.report.total_score} 分` : undefined} />
-          </dl>
-
-          <div className="border-b border-border/70 md:hidden">
+          <div className="border-b border-border/70">
             <div role="tablist" aria-label="课例详情板块" className="flex gap-1 overflow-x-auto">
               {TAB_META.map((t) => {
                 const on = activeTab === t.value;
@@ -533,16 +467,7 @@ function annotationStatusText(updatedAt?: string | null): string {
   return rel ? `已标注 · ${rel}保存` : '已标注';
 }
 
-/** 左侧导航里的信息条目：标签左、值右，超长省略 */
-function NavInfo({ label, value, title }: { label: string; value?: string | null; title?: string }) {
-  return (
-    <div className="flex items-baseline justify-between gap-2" title={title}>
-      <dt className="shrink-0 text-xs text-muted-foreground">{label}</dt>
-      <dd className="truncate text-xs font-medium text-foreground">{value || '—'}</dd>
-    </div>
-  );
-}
-
+/** 页头信息条目：标签在前、值在后，超长省略 */
 function Info({ label, value, title }: { label: string; value?: string | null; title?: string }) {
   return (
     <div className="flex items-baseline gap-1.5" title={title}>
