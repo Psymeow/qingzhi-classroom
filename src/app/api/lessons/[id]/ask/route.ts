@@ -133,7 +133,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const [inputRes, repRes, lessonRes] = await Promise.all([
       db
         .from('ai_analysis_inputs')
-        .select('transcript,observer_text,task_sheet_text,lesson_plan_text,segments')
+        .select('transcript,observer_text,task_sheet_text,lesson_plan_text,segments,transcript_source')
         .eq('lesson_id', id)
         .eq('user_id', user.id)
         .maybeSingle(),
@@ -163,7 +163,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
     // 时间轴来源要分清：ASR 给的是毫秒级结构化 segments；手动上传的文稿是 [mm:ss] 行首时间码。
     // 回答里的【实录 mm:ss】要能一键跳回视频，所以优先用结构化数据，其次按时间码解析，都没有才用纯文本。
-    const structured = normalizeSegments(input?.segments as Array<{ s: number; e: number; t: string }> | null);
+    const structured =
+      input?.transcript_source === 'asr'
+        ? normalizeSegments(input?.segments as Array<{ s: number; e: number; t: string }> | null)
+        : [];
     const segments = structured.length
       ? structured
       : rawTranscript

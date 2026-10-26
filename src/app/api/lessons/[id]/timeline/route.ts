@@ -77,8 +77,11 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     if (inputErr) return NextResponse.json({ error: inputErr.message }, { status: 500 });
 
     const transcript = (inputRow?.transcript as string | null) ?? '';
+    const transcriptSource = (inputRow?.transcript_source as string | null) ?? '';
     let source: TimelineSource['segment_source'] = 'none';
-    let segments = normalizeSegments(inputRow?.segments);
+    // segments 只在来源为 asr 时可信：手动保存文稿会替换 transcript 却残留旧 ASR 段，
+    // 字幕会和当前实录两张皮；manual 来源退回文稿时间码解析。
+    let segments = transcriptSource === 'asr' ? normalizeSegments(inputRow?.segments) : [];
     if (segments.length) {
       source = 'asr';
     } else if (transcript) {
