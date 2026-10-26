@@ -80,12 +80,30 @@ export default function DataIntake({ lessonId, onUnauthorized }: { lessonId: str
   const [assets, setAssets] = useState<Asset[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploadingKind, setUploadingKind] = useState<AssetKind | null>(null);
+  // 只在「系统文件选择框」里准备 accept 用，不驱动 loading：
+  // 之前 pickFile 直接置 uploadingKind，用户取消选择框时 change 事件不触发，
+  // uploadingKind 永远停在原值 → 卡片一直转圈且其它卡片全部 disabled（卡死）。
+  const [pickKind, setPickKind] = useState<AssetKind | null>(null);
   const [listError, setListError] = useState<string | null>(null);
   const [toDelete, setToDelete] = useState<Asset | null>(null);
   const [deleting, setDeleting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const transcriptFileRef = useRef<HTMLInputElement | null>(null);
   const activeKindRef = useRef<AssetKind | null>(null);
+
+  // 系统文件选择框被取消（或直接关掉）时清理「待选分类」。
+  // Chrome 113+ 会在 cancel 时派发 cancel 事件；不支持时也不会卡住——
+  // 因为 loading（uploadingKind）只在真的拿到文件后才置位。
+  useEffect(() => {
+    const el = fileInputRef.current;
+    if (!el) return;
+    const handleCancel = () => {
+      setPickKind(null);
+      activeKindRef.current = null;
+    };
+    el.addEventListener('cancel', handleCancel);
+    return () => el.removeEventListener('cancel', handleCancel);
+  }, []);
 
   // 文本输入
   const [transcript, setTranscript] = useState('');
@@ -301,7 +319,9 @@ export default function DataIntake({ lessonId, onUnauthorized }: { lessonId: str
 
   function pickFile(kind: AssetKind) {
     activeKindRef.current = kind;
-    setUploadingKind(kind);
+    // 只登记「这次选的是哪一类」用于 accept / 后续判断，不动 uploadingKind：
+    // 用户取消选择框时不会有 change 事件，若提前置 loading 就会永远转圈。
+    setPickKind(kind);
     fileInputRef.current?.click();
   }
 
@@ -312,6 +332,7 @@ export default function DataIntake({ lessonId, onUnauthorized }: { lessonId: str
     e.target.value = '';
     if (!file || !kind) {
       setUploadingKind(null);
+      setPickKind(null);
       return;
     }
     // P0-5：上传前客户端预校验（与服务端同一份规则），超限/类型不符直接拦下，不空等上传。
@@ -319,6 +340,7 @@ export default function DataIntake({ lessonId, onUnauthorized }: { lessonId: str
     if (invalid) {
       setListError(invalid);
       setUploadingKind(null);
+      setPickKind(null);
       activeKindRef.current = null;
       return;
     }
@@ -327,10 +349,13 @@ export default function DataIntake({ lessonId, onUnauthorized }: { lessonId: str
     const olds = assets.filter((a) => a.kind === kind);
     if (olds.length > 0) {
       setUploadingKind(null);
+      setPickKind(null);
       activeKindRef.current = null;
       setOverwritePending({ kind, file, olds });
       return;
     }
+    // 真正拿到文件后才进入 loading：此刻起卡片转圈、其它卡片暂时禁用
+    setUploadingKind(kind);
     try {
       const asset = await assetsApi.upload(lessonId, file, kind, undefined, (p) => setUploadProgress(p));
       await loadAssets();
@@ -342,6 +367,7 @@ export default function DataIntake({ lessonId, onUnauthorized }: { lessonId: str
       setListError(err instanceof Error ? err.message : '上传失败，请稍后重试');
     } finally {
       setUploadingKind(null);
+      setPickKind(null);
       activeKindRef.current = null;
       setUploadProgress(null);
     }
@@ -674,8 +700,8 @@ export default function DataIntake({ lessonId, onUnauthorized }: { lessonId: str
           type="file"
           className="hidden"
           onChange={onFileChosen}
-          // accept 在选择文件前按当前分类动态设置
-          accept={uploadingKind ? ASSET_ACCEPT[uploadingKind] : undefined}
+          // accept 在选择文件前按当前分类动态设置（pickKind：点卡片时登记的分类）
+          accept={pickKind ? ASSET_ACCEPT[pickKind] : undefined}
         />
 
         {listError && (
