@@ -23,8 +23,18 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
  */
 async function getAccessToken(attempt = 0): Promise<string | null> {
   const sb = await getSupabaseBrowserClientAsync();
-  const { data: sess } = await sb.auth.getSession();
-  const token = sess?.session?.access_token ?? null;
+  let token: string | null = null;
+  try {
+    const { data: sess } = await sb.auth.getSession();
+    token = sess?.session?.access_token ?? null;
+  } catch (e) {
+    // supabase-js 的会话锁（navigator.locks + AbortSignal）在并发/超时时会抛
+    // AbortError（"signal is aborted without reason"）。这是瞬时错误，重试即可，
+    // 不能让它冒泡成业务失败（曾表现为点「重新运行分析」直接报英文 abort 文案）。
+    if (attempt >= 4) throw e;
+    await sleep(200 * (attempt + 1)); // 200ms, 400ms, 600ms, 800ms
+    return getAccessToken(attempt + 1);
+  }
   if (token) return token;
   if (attempt >= 4) return null;
   await sleep(250 * (attempt + 1)); // 250ms, 500ms, 750ms, 1000ms
@@ -320,10 +330,15 @@ export const platformApi = {
 
 // ---------- 数据接入：素材文件 + 转写文稿/观察记录 ----------
 async function authHeaders(): Promise<Headers> {
-  const sb = await getSupabaseBrowserClientAsync();
-  const { data: sess } = await sb.auth.getSession();
   const headers = new Headers();
-  if (sess?.session?.access_token) headers.set('x-session', sess.session.access_token);
+  // 复用 getAccessToken 的会话空窗重试与 AbortError 兜底：上传/转写这类长请求
+  // 不能因为一次会话锁中断就整体失败。
+  try {
+    const token = await getAccessToken();
+    if (token) headers.set('x-session', token);
+  } catch {
+    // 拿不到 token 就不带头，让服务端按 401 处理，交给调用方提示重新登录。
+  }
   return headers;
 }
 

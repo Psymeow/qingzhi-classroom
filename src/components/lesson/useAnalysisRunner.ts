@@ -18,13 +18,21 @@ export interface AnalysisRunner {
   cancelRun: () => void;
 }
 
-/** 客户端兜底脱敏：任何混入技术细节（Key/状态码/堆栈词）的错误都替换为友好中文提示。 */
+/** 客户端兜底脱敏：任何混入技术细节（Key/状态码/堆栈词/浏览器原生 Abort 文案）的错误都替换为友好中文提示。 */
 function safeError(e: unknown, fallback: string): string {
   const raw = e instanceof Error ? e.message : String(e);
-  if (/api[_-]?key|deepseek|401|403|429|5\d\d|timeout|超时|json|fetch|undefined|stack|网络/i.test(raw)) {
+  if (/api[_-]?key|deepseek|401|403|429|5\d\d|timeout|超时|json|fetch|undefined|stack|网络|abort|signal|domexception/i.test(raw)) {
     return fallback;
   }
   return raw || fallback;
+}
+
+/** 浏览器原生 AbortError 的 message 为英文（signal is aborted without reason），不能直接上屏。 */
+function isAbortError(e: unknown): boolean {
+  if (!e || typeof e !== 'object') return false;
+  const err = e as { name?: unknown; message?: unknown };
+  if (err.name === 'AbortError' || err.name === 'TimeoutError') return true;
+  return typeof err.message === 'string' && /abort/i.test(err.message);
 }
 
 /**
@@ -58,7 +66,7 @@ export function useAnalysisRunner(opts: {
         onUnauthorized();
         return;
       }
-      setError(e instanceof Error ? e.message : '加载报告失败');
+      setError(e instanceof Error ? safeError(e, '加载报告失败，请刷新页面重试。') : '加载报告失败，请刷新页面重试。');
     } finally {
       setLoading(false);
     }
@@ -97,9 +105,14 @@ export function useAnalysisRunner(opts: {
         onUnauthorized();
         return;
       }
-      if ((e instanceof Error && e.name === 'AbortError') || controller.signal.aborted) {
+      if (controller.signal.aborted) {
         // 用户主动取消：不作为错误，保留上一次报告。
         setError(null);
+      } else if (isAbortError(e)) {
+        // 非用户取消的中断（页面刷新/切走、浏览器或网关中断长请求）：
+        // 浏览器原生文案是英文「signal is aborted without reason」，不能直接上屏。
+        console.warn('[analysis] 请求被中断', e);
+        setError('本次分析请求被中断（可能是页面刷新/切换或网络波动），报告仍是上一次结果，请重新运行分析。');
       } else if (e instanceof ApiError && e.status === 422) {
         setError(safeError(e, '暂无可分析的材料，请先在「数据接入」粘贴转写文稿/观察记录，或完成人工标注。'));
       } else {
