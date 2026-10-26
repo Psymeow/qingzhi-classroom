@@ -2,6 +2,7 @@
 
 import { getSupabaseBrowserClientAsync } from '@/lib/supabase-browser';
 import { SINGLE_UPLOAD_MAX, CHUNK_SIZE } from '@/lib/lesson/assets';
+import type { LessonDigest, ResearchGroup, ResearchInsight } from '@/lib/research/compare';
 
 export class ApiError extends Error {
   status: number;
@@ -707,4 +708,28 @@ export const consistencyApi = {
         body,
       )
       .then((r) => r.consistency),
+};
+
+// ---------- 教研中心（V1.21）：跨课例对比与 AI 教研洞察 ----------
+export type { LessonDigest, ResearchGroup, ResearchInsight };
+
+export const researchApi = {
+  /** 课例池：默认返回全部已分析课例；传 ids 时按给定顺序返回 */
+  lessons: (ids?: string[]) =>
+    api
+      .get<{ lessons: LessonDigest[] }>(
+        ids?.length
+          ? `/api/research/lessons?ids=${encodeURIComponent(ids.join(','))}`
+          : '/api/research/lessons',
+      )
+      .then((r) => r.lessons),
+  /** 生成跨课例教研洞察（AI 不可用时后端自动降级规则引擎） */
+  insight: (lessonIds: string[], rulesOnly = false) =>
+    api.post<{ insight: ResearchInsight; degraded: boolean; reason?: string }>(
+      '/api/research/insight',
+      {
+        lesson_ids: lessonIds,
+        rules_only: rulesOnly,
+      },
+    ),
 };

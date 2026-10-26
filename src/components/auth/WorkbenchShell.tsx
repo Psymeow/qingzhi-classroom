@@ -22,7 +22,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Loader2, LogOut, ChevronDown, Library, UserRound, BookOpen, Building2, ShieldCheck } from 'lucide-react';
+import {
+  Loader2,
+  LogOut,
+  ChevronDown,
+  Library,
+  UserRound,
+  BookOpen,
+  Building2,
+  ShieldCheck,
+  FlaskConical,
+} from 'lucide-react';
 import { getSupabaseBrowserClientAsync } from '@/lib/supabase-browser';
 import { meApi } from '@/lib/api/client';
 import BrandLogo from '@/components/brand/BrandLogo';
@@ -82,6 +92,12 @@ export default function WorkbenchShell({ children }: { children: React.ReactNode
               <Link href="/">
                 <Library className="h-4 w-4" />
                 <span className="hidden sm:inline">我的课例</span>
+              </Link>
+            </Button>
+            <Button variant="ghost" size="sm" asChild className="text-muted-foreground">
+              <Link href="/research">
+                <FlaskConical className="h-4 w-4" />
+                <span className="hidden sm:inline">教研中心</span>
               </Link>
             </Button>
             <Button variant="ghost" size="sm" asChild className="text-muted-foreground">
