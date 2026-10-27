@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -28,6 +28,11 @@ export function RunHistory({
   const [runs, setRuns] = useState<RunRecordItem[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // 回调走 ref 而不进依赖：调用方若传内联函数，父组件每次渲染都会重建 load →
+  // useEffect 重跑 → 反复 setLoading，表现为「正在读取」与「没有记录」来回闪烁。
+  const onUnauthorizedRef = useRef(onUnauthorized);
+  onUnauthorizedRef.current = onUnauthorized;
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -36,7 +41,7 @@ export function RunHistory({
       setRuns(r.runs);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
-        onUnauthorized();
+        onUnauthorizedRef.current();
         return;
       }
       // 历史是辅助信息，读取失败静默处理，不打断报告阅读
@@ -45,7 +50,7 @@ export function RunHistory({
     } finally {
       setLoading(false);
     }
-  }, [lessonId, onUnauthorized]);
+  }, [lessonId]);
 
   useEffect(() => {
     void load();

@@ -56,21 +56,29 @@ export function useAnalysisRunner(opts: {
   const [phase, setPhase] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
+  // 回调放进 ref 而不进依赖：调用方（页面）可能传入内联函数，一旦写进 useCallback
+  // 依赖，父组件每次渲染都会重建 load → useEffect 重跑 → 又调 onReportChange →
+  // 父组件再次渲染，形成无限循环（曾导致「分析报告」标签反复闪烁、接口被刷）。
+  const onUnauthorizedRef = useRef(onUnauthorized);
+  const onReportChangeRef = useRef(onReportChange);
+  onUnauthorizedRef.current = onUnauthorized;
+  onReportChangeRef.current = onReportChange;
+
   const load = useCallback(async () => {
     try {
       const r = await analysisApi.get(lessonId);
       setReport(r);
-      onReportChange(r ?? null);
+      onReportChangeRef.current(r ?? null);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
-        onUnauthorized();
+        onUnauthorizedRef.current();
         return;
       }
       setError(e instanceof Error ? safeError(e, '加载报告失败，请刷新页面重试。') : '加载报告失败，请刷新页面重试。');
     } finally {
       setLoading(false);
     }
-  }, [lessonId, onUnauthorized, onReportChange]);
+  }, [lessonId]);
 
   useEffect(() => {
     load();

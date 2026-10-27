@@ -53,6 +53,11 @@ export default function LessonDetailPage() {
   const searchParams = useSearchParams();
   const id = String(params.id);
 
+  // 稳定的未授权回调。此前这里（以及下方各子组件）都传内联箭头函数，每次渲染
+  // 都是新引用，导致依赖它的 useCallback/useEffect 反复重建重跑——“分析报告”
+  // 标签下「正在读取运行历史」与「还没有运行记录」来回闪烁、接口被无限重复调用。
+  const handleUnauthorized = useCallback(() => router.replace('/login'), [router]);
+
   const [detail, setDetail] = useState<LessonDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -69,7 +74,7 @@ export default function LessonDetailPage() {
   // 左列「课堂实录」视频上方（全板块常驻），分析本身作用于整节课的全部数据。
   const analysisRunner = useAnalysisRunner({
     lessonId: id,
-    onUnauthorized: () => router.replace('/login'),
+    onUnauthorized: handleUnauthorized,
     onReportChange: setLatestReport,
   });
 
@@ -385,7 +390,7 @@ export default function LessonDetailPage() {
           </div>
 
           <div role="tabpanel" id="panel-intake" aria-labelledby="tab-intake" hidden={activeTab !== 'intake'}>
-            <DataIntake lessonId={id} onUnauthorized={() => router.replace('/login')} />
+            <DataIntake lessonId={id} onUnauthorized={handleUnauthorized} />
           </div>
 
           <div role="tabpanel" id="panel-annotate" aria-labelledby="tab-annotate" hidden={activeTab !== 'annotate'}>
@@ -398,7 +403,7 @@ export default function LessonDetailPage() {
                   <AnnotationWorkbench
                     lessonId={id}
                     dimensions={dimensions}
-                    onUnauthorized={() => router.replace('/login')}
+                    onUnauthorized={handleUnauthorized}
                   />
                 ) : (
                   <BlockSkeleton />
@@ -420,7 +425,7 @@ export default function LessonDetailPage() {
                 <AnalysisPanel
                   lessonId={id}
                   dimensions={dimensions}
-                  onUnauthorized={() => router.replace('/login')}
+                  onUnauthorized={handleUnauthorized}
                   runner={analysisRunner}
                 />
               </CardContent>
@@ -440,7 +445,7 @@ export default function LessonDetailPage() {
               <RunHistory
                 lessonId={id}
                 refreshKey={latestReport?.updated_at ?? null}
-                onUnauthorized={() => router.replace('/login')}
+                onUnauthorized={handleUnauthorized}
               />
             </div>
             {latestReport ? (
@@ -460,7 +465,7 @@ export default function LessonDetailPage() {
                       school: detail.school,
                       grade_class: detail.grade_class,
                     }}
-                    onUnauthorized={() => router.replace('/login')}
+                    onUnauthorized={handleUnauthorized}
                   />
                 </CardContent>
               </Card>
