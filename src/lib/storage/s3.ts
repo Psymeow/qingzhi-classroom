@@ -16,6 +16,32 @@ function getStorage(): S3Storage {
 /** 签名 URL 有效期：2 小时。对象 key 长期持久化，URL 用时再签。 */
 const PRESIGN_EXPIRE_SECONDS = 7200;
 
+/**
+ * 历史素材 key 映射：lesson_assets.file_url 里的旧 key → 生产桶里的实际 key。
+ *
+ * 起因：项目从旧项目 import 重建时存储桶没跟着迁移，沙箱期上传的课堂录像全在旧桶，
+ * 生产部署读写的是另一个桶，sign-url 服务按环境映射、不接受调用方指定桶，所以老素材
+ * 在生产一律 404。已用 /api/admin/media-ingest 把对象搬进生产桶；但 SDK 上传必定在
+ * 文件名后追加 8 位随机串（S3Storage.generateObjectKey），落地 key 和库里的旧 key 对不上。
+ * 生产环境没有 service_role，改库必须走用户 session，所以这里做一层映射，让播放代理、
+ * 教案解析、ASR、时间轴这些调用点继续传旧 key 也能取到对象。
+ *
+ * 这批讲次数据重建后应删除本表，并一并删掉 /api/admin/media-ingest。
+ */
+const LEGACY_KEY_REMAP: Record<string, string> = {
+  'u_1f04082a-032f-4332-91b8-d68582b4d953/l_b077dc87-8077-4aef-a8b3-42ee78500061/av_video/file_be60773b.mp4':
+    'u_1f04082a-032f-4332-91b8-d68582b4d953/l_b077dc87-8077-4aef-a8b3-42ee78500061/av_video/file_be60773b_e32b1b8a.mp4',
+  'u_1f04082a-032f-4332-91b8-d68582b4d953/l_b8152d2f-040d-4a16-a0f3-d6195f5e0d7e/av_video/file_83019a7e.mp4':
+    'u_1f04082a-032f-4332-91b8-d68582b4d953/l_b8152d2f-040d-4a16-a0f3-d6195f5e0d7e/av_video/file_83019a7e_77e57029.mp4',
+  'u_1f04082a-032f-4332-91b8-d68582b4d953/l_b077dc87-8077-4aef-a8b3-42ee78500061/lesson_plan/20261015_05b84ed6.docx':
+    'u_1f04082a-032f-4332-91b8-d68582b4d953/l_b077dc87-8077-4aef-a8b3-42ee78500061/lesson_plan/20261015_05b84ed6_32698fbc.docx',
+};
+
+/** 把历史素材的旧 key 换成生产桶里的实际 key；其他 key（含新上传）原样返回。 */
+function remapLegacyKey(key: string): string {
+  return LEGACY_KEY_REMAP[key] ?? key;
+}
+
 /** 将任意文件名清洗为对象存储安全的 basename（仅 ASCII 字母数字 . _ -，空格转下划线）。 */
 function sanitizeBaseName(fileName: string): string {
   const base = fileName.split('/').pop() ?? fileName;
@@ -88,11 +114,13 @@ export async function signObjectUrl(
   bucket?: string,
 ): Promise<string> {
   const storage = getStorage();
+  // 历史素材的 key 已在生产桶里换了名字，签之前先映射回实际对象；新上传的 key 原样通过。
+  const targetKey = remapLegacyKey(key);
   let lastError: unknown = null;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       return await storage.generatePresignedUrl({
-        key,
+        key: targetKey,
         expireTime: expireSeconds,
         ...(bucket ? { bucket } : {}),
       });
@@ -107,7 +135,7 @@ export async function signObjectUrl(
 /** 删除对象；对象不存在不视为致命错误（由上层决定是否继续删库行）。 */
 export async function deleteObject(key: string): Promise<boolean> {
   try {
-    return await getStorage().deleteFile({ fileKey: key });
+    return await getStorage().deleteFile({ fileKey: remapLegacyKey(key) });
   } catch {
     return false;
   }
