@@ -21,6 +21,7 @@ import {
   Lightbulb,
   CheckCircle2,
   FileText,
+  BookOpen,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -45,6 +46,8 @@ import EvidenceItem from './EvidenceItem';
 import DimensionInterpretationBlock, {
   useDimensionInterpretations,
 } from './DimensionInterpretation';
+import TheoryAnchorTag from './TheoryAnchorTag';
+import { collectBibliography, METHODOLOGY_NOTE } from '@/lib/report/theory-anchors';
 import { downloadReportHtml } from '@/lib/report/export-html';
 import { getSourceText, locateQuote, nearestTimestamp, type LocateSource } from '@/lib/report/locate';
 
@@ -251,6 +254,15 @@ export default function ReportView({
       fullMark: 10,
     }));
   }, [result, dimensions]);
+
+  // V1.26 参考文献：按本报告涉及的维度收集理论锚点引用，去重后按字母序（APA 惯例）
+  const theoryRefs = useMemo(
+    () =>
+      collectBibliography(result.dimension_results.map((d) => d.dimension_code)).sort((a, b) =>
+        a.localeCompare(b),
+      ),
+    [result],
+  );
 
   const reviewCount = result.dimension_results.filter((d) => d.need_review).length;
   // P1-2：仅 0–1 个数据来源时，分数可比性弱，报告显著提示谨慎解读。
@@ -645,6 +657,8 @@ export default function ReportView({
                       </span>
                     )}
                   </div>
+                  {/* V1.26 维度理论依据：评分标准站在什么理论上，默认收起，导出打印时展开 */}
+                  <TheoryAnchorTag dimensionCode={d.dimension_code} />
                   {/* V1.17 维度级 AI 解读：依据/为什么/怎么读/怎么提升，默认收起，导出打印时展开 */}
                   <DimensionInterpretationBlock
                     interpretation={
@@ -761,6 +775,33 @@ export default function ReportView({
           </CardContent>
         </Card>
       )}
+
+      {/* V1.26 理论依据与参考文献：让报告本身可被引用；方法学声明诚实交代 AI 判定边界 */}
+      <Card className="break-inside-avoid shadow-card">
+        <CardContent className="space-y-2.5 p-4">
+          <div className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+            <BookOpen className="h-4 w-4 text-primary" /> 理论依据与参考文献
+          </div>
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            本评价模型的五个维度并非经验性设定，其构念效度与权重依据可追溯至下列文献。
+            各维度得分旁的「理论依据」标签展开后，可见该维度对应的具体支撑。
+          </p>
+          <ol className="space-y-1.5">
+            {theoryRefs.map((r) => (
+              <li
+                key={r}
+                className="pl-4 text-[11px] leading-relaxed text-muted-foreground [text-indent:-1rem]"
+              >
+                {r}
+              </li>
+            ))}
+          </ol>
+          <div className="border-t border-border/60 pt-2">
+            <div className="mb-1 text-[11px] font-medium text-foreground/80">方法学说明</div>
+            <p className="text-[11px] leading-relaxed text-muted-foreground">{METHODOLOGY_NOTE}</p>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* P2-3 报告性质声明：把控制权写在明面上，正面回应「AI 给教师打分」的顾虑 */}
       <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-[10px] leading-relaxed text-muted-foreground print:border-0 print:bg-transparent">
