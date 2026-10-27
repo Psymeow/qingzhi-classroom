@@ -2,19 +2,37 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authenticate, AuthError } from '@/lib/auth/server';
 import { ensureLessonOwned } from '@/lib/auth/lesson';
 import { signObjectUrl } from '@/lib/storage/s3';
+import { mediaStreamUrl } from '@/lib/media/ticket';
 import { normalizeSegments, segmentsFromTranscript, type TimelineSegment } from '@/lib/report/timeline';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-/** 课堂切片数据源：主视频（签名 URL）+ 课堂实录时间轴 */
+/**
+ * 课堂切片数据源：主视频 + 课堂实录时间轴。
+ * `play_url` 走本站代理（/api/media/:id?t=票据），`url` 是存储直连签名地址仅作兜底。
+ */
 interface TimelineSource {
   segment_source: 'asr' | 'transcript' | 'none';
   segments: TimelineSegment[];
   duration_ms: number | null;
   transcript_chars: number;
-  videos: Array<{ id: string; file_name: string | null; size_bytes: number | null; created_at: string | null; url: string | null }>;
-  audios: Array<{ id: string; file_name: string | null; size_bytes: number | null; created_at: string | null; url: string | null }>;
+  videos: Array<{
+    id: string;
+    file_name: string | null;
+    size_bytes: number | null;
+    created_at: string | null;
+    url: string | null;
+    play_url: string | null;
+  }>;
+  audios: Array<{
+    id: string;
+    file_name: string | null;
+    size_bytes: number | null;
+    created_at: string | null;
+    url: string | null;
+    play_url: string | null;
+  }>;
 }
 
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -43,6 +61,10 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
       }
     };
     const rows = assetRows ?? [];
+    // 代理地址优先：浏览器直连存储 CDN 会因连接抖动把播放卡死在 0:00，
+    // play_url 由本站 /api/media 转发，客户端只连自己的域名。
+    const play = (assetId: string, key: string | null): string | null =>
+      key ? mediaStreamUrl(assetId, key) : null;
     const videos = await Promise.all(
       rows
         .filter((a) => a.kind === 'av_video')
@@ -52,6 +74,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
           size_bytes: (a.size_bytes as number | null) ?? null,
           created_at: (a.created_at as string | null) ?? null,
           url: await sign(a.file_url as string | null),
+          play_url: play(a.id as string, a.file_url as string | null),
         })),
     );
     const audios = await Promise.all(
@@ -63,6 +86,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
           size_bytes: (a.size_bytes as number | null) ?? null,
           created_at: (a.created_at as string | null) ?? null,
           url: await sign(a.file_url as string | null),
+          play_url: play(a.id as string, a.file_url as string | null),
         })),
     );
 
@@ -79,8 +103,9 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     const transcript = (inputRow?.transcript as string | null) ?? '';
     const transcriptSource = (inputRow?.transcript_source as string | null) ?? '';
     let source: TimelineSource['segment_source'] = 'none';
-    // segments 只在来源为 asr 时可信：手动保存文稿会替换 transcript 却残留旧 ASR 段，
-    // 字幕会和当前实录两张皮；manual 来源退回文稿时间码解析。
+    // segments 只在来源为 asr 时可信：手动保存文稿（inputs PUT）会替换 transcript
+    // 却不重写 segments，残留的旧 ASR 段与当前文稿对不上（字幕和实录两张皮），
+    // 宁可退回文稿时间码解析，也不展示与文稿脱节的旧识别文本。
     let segments = transcriptSource === 'asr' ? normalizeSegments(inputRow?.segments) : [];
     if (segments.length) {
       source = 'asr';

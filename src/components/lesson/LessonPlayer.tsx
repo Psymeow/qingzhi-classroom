@@ -13,7 +13,16 @@ interface SourceMedia {
   id: string;
   file_name: string | null;
   url: string | null;
+  /** 本站媒体代理地址（/api/media/:id），优先使用；为空时退回 url */
+  play_url?: string | null;
 }
+
+/**
+ * 优先走本站媒体代理。
+ * 浏览器直连存储 CDN 时，连接耗时会在十几毫秒到十几秒之间随机跳，
+ * 视频靠连续 range 请求边下边播，一次卡住整段就停在 0:00。
+ */
+const mediaSrc = (m: SourceMedia): string | null => m.play_url ?? m.url;
 
 interface TimelinePayload {
   segment_source: 'asr' | 'transcript' | 'none';
@@ -46,6 +55,10 @@ export default function LessonPlayer({ lessonId }: { lessonId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [activeMedia, setActiveMedia] = useState<string | null>(null);
   const [currentMs, setCurrentMs] = useState(0);
+  const [mediaError, setMediaError] = useState<{ code: number; hint: string } | null>(null);
+
+  /** 本次播放地址是否已自动重签重试过；防止坏文件导致无限重试 */
+  const autoRetriedRef = useRef(false);
 
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -53,16 +66,28 @@ export default function LessonPlayer({ lessonId }: { lessonId: string }) {
   const programmaticRef = useRef(false);
   const lockTimerRef = useRef<number | null>(null);
 
+  const applyPayload = useCallback((payload: TimelinePayload) => {
+    setData(payload);
+    const first =
+      payload.videos.find((v) => mediaSrc(v)) ?? payload.audios.find((a) => mediaSrc(a)) ?? null;
+    setActiveMedia(first ? mediaSrc(first) : null);
+    setMediaError(null);
+  }, []);
+
+  // 统一走 api 客户端：附带 x-session，否则服务端 401「请先登录」
+  const loadTimeline = useCallback(async () => {
+    const payload = await api.get<TimelinePayload>(`/api/lessons/${lessonId}/timeline`);
+    applyPayload(payload);
+    return payload;
+  }, [lessonId, applyPayload]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         setLoading(true);
-        const payload = await api.get<TimelinePayload>(`/api/lessons/${lessonId}/timeline`);
-        if (cancelled) return;
-        setData(payload);
-        const first = payload.videos.find((v) => v.url) ?? payload.audios.find((a) => a.url) ?? null;
-        setActiveMedia(first?.url ?? null);
+        autoRetriedRef.current = false;
+        await loadTimeline();
       } catch (e) {
         if (!cancelled) setError(friendlyError(e, '课堂播放器加载失败'));
       } finally {
@@ -72,7 +97,7 @@ export default function LessonPlayer({ lessonId }: { lessonId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [lessonId]);
+  }, [loadTimeline]);
 
   const seekToMs = useCallback((ms: number, autoplay: boolean) => {
     const el = mediaRef.current;
@@ -101,6 +126,45 @@ export default function LessonPlayer({ lessonId }: { lessonId: string }) {
     const el = mediaRef.current;
     if (el) setCurrentMs(el.currentTime * 1000);
   }, []);
+
+  /**
+   * 播放失败兜底。
+   *
+   * 黑屏不出声是最难排查的故障：签名过期、取流 5xx、对象缺失，在界面上长得一模一样。
+   * 这里把浏览器暴露的 MediaError.code 翻成人话，并先自动换一份新签名重试一次——
+   * 「签名过期」和「取流瞬时失败」这两类都能被这一步吃掉，用户无感。
+   */
+  const onMediaError = useCallback(async () => {
+    const el = mediaRef.current;
+    const code = el && 'error' in el && el.error ? el.error.code : 0;
+    if (!autoRetriedRef.current) {
+      autoRetriedRef.current = true;
+      try {
+        await loadTimeline();
+        return;
+      } catch {
+        // 重签也失败，继续走下面的提示
+      }
+    }
+    const HINT: Record<number, string> = {
+      1: '播放被中断，请重新加载',
+      2: '网络中断，无法继续加载',
+      3: '文件解码失败，可能已损坏',
+      4: '播放地址暂时不可用（取流失败，或文件已不在存储中）',
+    };
+    setMediaError({ code, hint: HINT[code] ?? '未知播放错误' });
+  }, [loadTimeline]);
+
+  /** 手动重新加载：重置自动重试额度后再拉一次新签名 */
+  const manualReload = useCallback(async () => {
+    autoRetriedRef.current = false;
+    setMediaError(null);
+    try {
+      await loadTimeline();
+    } catch (e) {
+      setMediaError({ code: 0, hint: friendlyError(e, '重新获取播放地址失败') });
+    }
+  }, [loadTimeline]);
 
   const segments = data?.segments ?? [];
 
@@ -174,11 +238,11 @@ export default function LessonPlayer({ lessonId }: { lessonId: string }) {
 
   const hasMedia = Boolean(activeMedia);
   const hasSegments = segments.length > 0;
-  const mediaList = [...(data?.videos ?? []), ...(data?.audios ?? [])].filter((m) => m.url);
+  const mediaList = [...(data?.videos ?? []), ...(data?.audios ?? [])].filter((m) => mediaSrc(m));
   // 有媒体记录但一个都签不出 URL（存储凭证/对象缺失）：不能当成「没传过」误导用户
   const mediaCount = (data?.videos?.length ?? 0) + (data?.audios?.length ?? 0);
   const mediaSignBroken = !hasMedia && mediaCount > 0;
-  const isVideo = (data?.videos ?? []).some((v) => v.url === activeMedia);
+  const isVideo = (data?.videos ?? []).some((v) => mediaSrc(v) === activeMedia);
 
   return (
     <Card className="overflow-hidden shadow-card">
@@ -215,6 +279,7 @@ export default function LessonPlayer({ lessonId }: { lessonId: string }) {
           <div className="overflow-hidden rounded-lg border border-border/70 bg-black">
             {isVideo ? (
               <video
+                key={activeMedia ?? 'none'}
                 ref={(el) => {
                   mediaRef.current = el;
                 }}
@@ -222,18 +287,21 @@ export default function LessonPlayer({ lessonId }: { lessonId: string }) {
                 controls
                 playsInline
                 onTimeUpdate={onTimeUpdate}
+                onError={() => void onMediaError()}
                 className="aspect-video w-full bg-black"
               />
             ) : (
               <div className="flex items-center gap-3 bg-card px-4 py-5">
                 <Volume2 className="h-5 w-5 shrink-0 text-muted-foreground" />
                 <audio
+                  key={activeMedia ?? 'none'}
                   ref={(el) => {
                     mediaRef.current = el;
                   }}
                   src={activeMedia ?? undefined}
                   controls
                   onTimeUpdate={onTimeUpdate}
+                  onError={() => void onMediaError()}
                   className="w-full"
                 />
               </div>
@@ -241,10 +309,31 @@ export default function LessonPlayer({ lessonId }: { lessonId: string }) {
           </div>
         )}
 
+        {mediaError && (
+          <div className="flex flex-wrap items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2.5 text-[13px] leading-5 text-destructive">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span className="min-w-0 flex-1">
+              {mediaError.hint}
+              {mediaError.code > 0 && (
+                <span className="text-muted-foreground">（错误码 {mediaError.code}）</span>
+              )}
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 text-[12px]"
+              onClick={() => void manualReload()}
+            >
+              重新加载
+            </Button>
+          </div>
+        )}
+
         {mediaList.length > 1 && (
           <div className="flex flex-wrap gap-1.5">
             {mediaList.map((m) => {
-              const on = m.url === activeMedia;
+              const on = mediaSrc(m) === activeMedia;
               return (
                 <Button
                   key={m.id}
@@ -253,7 +342,7 @@ export default function LessonPlayer({ lessonId }: { lessonId: string }) {
                   variant={on ? 'secondary' : 'ghost'}
                   className="h-7 max-w-[200px] truncate text-[12px]"
                   onClick={() => {
-                    setActiveMedia(m.url);
+                    setActiveMedia(mediaSrc(m));
                     setCurrentMs(0);
                   }}
                   title={m.file_name ?? undefined}

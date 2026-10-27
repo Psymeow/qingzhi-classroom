@@ -71,9 +71,26 @@ export async function uploadObjectStream(
   });
 }
 
-/** 为已持久化的对象 key 生成临时签名访问 URL。 */
+/**
+ * 为已持久化的对象 key 生成临时签名访问 URL。
+ *
+ * 签名本身是本地计算，但 SDK 首次调用要先取一次存储凭证，这一步偶发瞬时失败，
+ * 之前会让整页音视频一次性签不出地址（表现为黑屏且无任何提示）。
+ * 这里做 3 次短退避重试，把「瞬时不稳」挡在用户感知之外；
+ * 真持续失败仍然抛出，由上层降级成明确提示，不吞错误。
+ */
 export async function signObjectUrl(key: string, expireSeconds = PRESIGN_EXPIRE_SECONDS): Promise<string> {
-  return getStorage().generatePresignedUrl({ key, expireTime: expireSeconds });
+  const storage = getStorage();
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await storage.generatePresignedUrl({ key, expireTime: expireSeconds });
+    } catch (e) {
+      lastError = e;
+      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 200 * (attempt + 1)));
+    }
+  }
+  throw lastError;
 }
 
 /** 删除对象；对象不存在不视为致命错误（由上层决定是否继续删库行）。 */
