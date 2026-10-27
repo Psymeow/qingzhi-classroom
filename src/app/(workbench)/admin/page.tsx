@@ -26,9 +26,18 @@ import {
   platformApi,
   ApiError,
   type PlatformPayload,
+  type PlatformLessonFilters,
   type SchemaHealthPayload,
 } from '@/lib/api/client';
+import { LESSON_STATUS } from '@/lib/lesson/constants';
 import { orgRoleLabel } from '@/lib/constants/roles';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 type TabKey = 'orgs' | 'users' | 'lessons';
 
@@ -40,6 +49,15 @@ const TABS: { key: TabKey; label: string; icon: typeof Building2 }[] = [
 
 /** 前端分页：课例可能几百条，一次渲染全量会卡住低配电脑 */
 const PAGE_SIZE = 50;
+
+/** 课例筛选下拉选项，文案复用 LESSON_STATUS，避免两处漂移 */
+const LESSON_STATUS_FILTERS: { value: string; label: string }[] = [
+  { value: 'draft', label: LESSON_STATUS.draft.label },
+  { value: 'analyzed', label: LESSON_STATUS.analyzed.label },
+  { value: 'reviewed', label: LESSON_STATUS.reviewed.label },
+];
+
+const EMPTY_FILTERS: PlatformLessonFilters = {};
 
 /** 分块降级时给运营看的人话名 */
 const BLOCK_LABEL: Record<string, string> = {
@@ -198,6 +216,8 @@ export default function AdminPage() {
   const [page, setPage] = useState(1);
   const [health, setHealth] = useState<SchemaHealthPayload | null>(null);
   const [healthLoading, setHealthLoading] = useState(false);
+  const [filters, setFilters] = useState<PlatformLessonFilters>(EMPTY_FILTERS);
+  const [filterLoading, setFilterLoading] = useState(false);
 
   const loadHealth = useCallback(async () => {
     setHealthLoading(true);
@@ -213,35 +233,46 @@ export default function AdminPage() {
     }
   }, []);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setFailed(null);
-    try {
-      const data = await platformApi.get();
-      setPayload(data);
-      setForbidden(false);
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 401) {
-        router.replace('/login');
-        return;
-      }
-      if (e instanceof ApiError && (e.status === 403 || e.status === 404)) {
-        setForbidden(true);
+  // mode='full' 走整页加载（首次 / 刷新）；mode='filtered' 只是课例筛选重取，
+  // 用局部 loading，不让整页骨架屏闪一次。
+  const load = useCallback(
+    async (mode: 'full' | 'filtered' = 'full', override?: PlatformLessonFilters) => {
+      if (mode === 'filtered') setFilterLoading(true);
+      else setLoading(true);
+      setFailed(null);
+      try {
+        // override 用于「先 setFilters 再立即请求」的场景：state 更新是异步的，
+        // 直接读 filters 会拿到旧值，导致第一次筛选不生效。
+        const data = await platformApi.get(override ?? filters);
+        setPayload(data);
+        setForbidden(false);
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 401) {
+          router.replace('/login');
+          return;
+        }
+        if (e instanceof ApiError && (e.status === 403 || e.status === 404)) {
+          setForbidden(true);
+          setPayload(null);
+          return;
+        }
+        // 接口故障不能谎报成「没有权限」——这是两件完全不同的事
+        setForbidden(false);
         setPayload(null);
-        return;
+        setFailed(e instanceof ApiError ? e.message : '网络异常，请检查连接后重试');
+      } finally {
+        setLoading(false);
+        setFilterLoading(false);
       }
-      // 接口故障不能谎报成「没有权限」——这是两件完全不同的事
-      setForbidden(false);
-      setPayload(null);
-      setFailed(e instanceof ApiError ? e.message : '网络异常，请检查连接后重试');
-    } finally {
-      setLoading(false);
-    }
-  }, [router]);
+    },
+    [filters, router],
+  );
 
+  // 只在首次加载跑整页请求；之后筛选条件变化由控件直接触发 load('filtered')
   useEffect(() => {
-    load();
-  }, [load]);
+    load('full');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 只有管理员身份确认后才去拉自检，避免非白名单账号白打一次请求
   useEffect(() => {
@@ -257,6 +288,29 @@ export default function AdminPage() {
     load();
     loadHealth();
   }, [load, loadHealth]);
+
+  /** 课例筛选：条件在服务端生效（见 migrations/0009），不走前端本地过滤 */
+  const applyLessonFilter = useCallback(
+    (patch: PlatformLessonFilters) => {
+      const next: PlatformLessonFilters = { ...EMPTY_FILTERS, ...filters, ...patch };
+      // 空值等价于「不筛」，删掉 key 避免发出空参数
+      (Object.keys(next) as (keyof PlatformLessonFilters)[]).forEach((k) => {
+        if (next[k] === null || next[k] === undefined || next[k] === '') delete next[k];
+      });
+      setFilters(next);
+      setPage(1);
+      void load('filtered', next);
+    },
+    [filters, load],
+  );
+
+  const clearLessonFilters = useCallback(() => {
+    setFilters(EMPTY_FILTERS);
+    setPage(1);
+    void load('filtered', EMPTY_FILTERS);
+  }, [load]);
+
+  const hasLessonFilters = Object.keys(filters).length > 0;
 
   const q = query.trim().toLowerCase();
 
@@ -555,8 +609,77 @@ export default function AdminPage() {
       {/* 课例表 */}
       {tab === 'lessons' && (
         <Card className="shadow-card">
-          <CardContent className="p-4">
-            <div className="overflow-x-auto">
+          <CardContent className="space-y-3 p-4">
+            {/* 课例筛选：条件在服务端生效（0009），不走前端本地过滤 */}
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                value={filters.status ?? 'all'}
+                onValueChange={(v) => applyLessonFilter({ status: v === 'all' ? null : v })}
+              >
+                <SelectTrigger className="h-8 w-[116px] text-xs">
+                  <SelectValue placeholder="课例状态" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部状态</SelectItem>
+                  {LESSON_STATUS_FILTERS.map((s) => (
+                    <SelectItem key={s.value} value={s.value}>
+                      {s.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <div className="flex items-center gap-1.5">
+                <Input
+                  type="date"
+                  aria-label="创建时间起始日期"
+                  className="h-8 w-[138px] text-xs"
+                  value={filters.from ?? ''}
+                  onChange={(e) => applyLessonFilter({ from: e.target.value })}
+                />
+                <span className="text-xs text-muted-foreground">至</span>
+                <Input
+                  type="date"
+                  aria-label="创建时间结束日期"
+                  className="h-8 w-[138px] text-xs"
+                  value={filters.to ?? ''}
+                  onChange={(e) => applyLessonFilter({ to: e.target.value })}
+                />
+              </div>
+
+              <Select
+                value={
+                  filters.hasReport === null || filters.hasReport === undefined
+                    ? 'all'
+                    : String(filters.hasReport)
+                }
+                onValueChange={(v) => applyLessonFilter({ hasReport: v === 'all' ? null : v === 'true' })}
+              >
+                <SelectTrigger className="h-8 w-[116px] text-xs">
+                  <SelectValue placeholder="报告" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部课例</SelectItem>
+                  <SelectItem value="true">有报告</SelectItem>
+                  <SelectItem value="false">无报告</SelectItem>
+                </SelectContent>
+              </Select>
+
+              {hasLessonFilters && (
+                <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={clearLessonFilters}>
+                  <XCircle className="mr-1 h-3.5 w-3.5" /> 清除筛选
+                </Button>
+              )}
+
+              {filterLoading && (
+                <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> 正在按条件筛选…
+                </span>
+              )}
+            </div>
+
+            {/* 筛选中保留表格原位，只降低对比度，避免整块闪烁 */}
+            <div className={`overflow-x-auto ${filterLoading ? 'pointer-events-none opacity-60' : ''}`}>
               <table className="w-full text-xs">
                 <thead className="text-muted-foreground">
                   <tr className="border-b border-border/60">
@@ -593,7 +716,19 @@ export default function AdminPage() {
                   {lessons.length === 0 && (
                     <tr>
                       <td colSpan={6} className="px-2 py-8 text-center">
-                        {q ? (
+                        {hasLessonFilters ? (
+                          <span className="text-muted-foreground">
+                            当前筛选条件下没有课例。试试放宽日期范围，或
+                            <button
+                              type="button"
+                              className="mx-1 underline underline-offset-2 hover:text-foreground"
+                              onClick={clearLessonFilters}
+                            >
+                              清除筛选
+                            </button>
+                            。
+                          </span>
+                        ) : q ? (
                           <span className="text-muted-foreground">
                             没有匹配「{query.trim()}」的课例，换个关键词或清空筛选。
                           </span>
@@ -609,7 +744,8 @@ export default function AdminPage() {
               </table>
             </div>
             <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-              「报告」为该课例已生成的报告数；总分取最近一份报告。最多加载最近 500 条课例。
+              「报告」为该课例已生成的报告数；总分取最近一份报告。筛选在服务端生效；不带筛选时最多返回最近
+              1000 条，更早的课例请用日期范围缩小。
             </p>
           </CardContent>
         </Card>

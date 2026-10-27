@@ -350,8 +350,29 @@ export interface SchemaHealthPayload {
   fetched_at?: string;
 }
 
+/** 平台总控台课例筛选条件（服务端筛选，参数白名单在 /api/admin 与 0009 函数体内各校验一次） */
+export interface PlatformLessonFilters {
+  limit?: number;
+  status?: string | null;
+  from?: string | null;
+  to?: string | null;
+  hasReport?: boolean | null;
+}
+
 export const platformApi = {
-  get: () => api.get<PlatformPayload>('/api/admin'),
+  get: (filters?: PlatformLessonFilters) => {
+    const sp = new URLSearchParams();
+    if (filters?.limit) sp.set('limit', String(filters.limit));
+    if (filters?.status) sp.set('lesson_status', filters.status);
+    if (filters?.from) sp.set('lesson_from', filters.from);
+    if (filters?.to) sp.set('lesson_to', filters.to);
+    // hasReport === false 也是有效条件，不能用 || 兜掉
+    if (filters?.hasReport !== null && filters?.hasReport !== undefined) {
+      sp.set('lesson_has_report', String(filters.hasReport));
+    }
+    const qs = sp.toString();
+    return api.get<PlatformPayload>(`/api/admin${qs ? `?${qs}` : ''}`);
+  },
   health: () => api.get<SchemaHealthPayload>('/api/admin/health/schema'),
 };
 

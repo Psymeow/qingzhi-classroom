@@ -42,6 +42,8 @@ src/
 - **样式层**：`globals.css` 使用 `@layer components` 自定义类（`.bg-brand-gradient/.shadow-card/.shadow-card-hover/.app-surface/.auth-surface`）与 oklch token —— 保持原样，不要改为 `@utility`。
 - **API 契约**：前端经 `@/lib/api/client` 访问 `/api/**`，鉴权头为 `x-session: <supabase access_token>`，非 2xx 抛 `ApiError(status)`；401 由页面侧统一跳 `/login`。
 - **assets/ 目录**：为用户上传暂存区，已在 tsconfig 中 exclude，不参与编译。
+- **数据边界（硬约束，不可绕过）**：平台总控台只允许看到课例元数据、统计量与质量指标，**不得出现**逐字稿、观察记录、课堂音视频、标注内容等任何课堂内容字段；平台白名单身份（`platform_admins`）与机构管理员身份（`org_members.role`）互相独立，不得互相提权。详见 `docs/DATA-BOUNDARY.md`。
+- **权限守卫单一入口**：平台侧接口一律使用 `lib/auth/platform-admin.ts` 的 `requirePlatformAdmin()`，不要在 route 里自行写 `is_platform_admin` 判定；机构角色判断使用 `lib/constants/roles.ts`，不要写裸字符串 `=== 'admin'`。
 
 ## 包管理与命令
 
