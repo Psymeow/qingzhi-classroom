@@ -12,6 +12,7 @@ import type {
   RubricStandard,
 } from '@/lib/evaluation/types';
 import { POINT_SOURCE_LABEL } from '@/lib/evaluation/essence-points';
+import { pointBandPromptLines } from '@/lib/evaluation/essence-point-bands';
 import {
   essenceIndicatorsOf,
   fallbackStandard,
@@ -28,6 +29,13 @@ import {
 
 /** 单次送入模型的文本上限（字符），超出截断以控制时延与成本 */
 const MAX_CHARS = 14_000;
+
+/**
+ * V1.27：是否把 57 个观察点各自的五档判据注入 prompt。
+ * 此前只有一份通用锚点，模型对每个点「什么样算 8 分」只能自由裁量，同一节课的松紧不稳定。
+ * 全量注入后单次约多 1 万 token（DeepSeek 下可接受）；若要压成本改回 false 即可回到旧行为。
+ */
+const INJECT_BAND_NOTES = true;
 
 /**
  * V1.10：两链统一行为锚点。
@@ -303,12 +311,17 @@ function essenceBrief(std: RubricStandard): string {
     .filter((i) => (i.observation_points ?? []).length > 0)
     .map((i) => {
       const lines = (i.observation_points ?? [])
-        .map(
-          (p) =>
-            `- ${p.code} ${p.name}：${p.description ?? ''}（主要证据来源：${(p.sources ?? [])
-              .map((s) => POINT_SOURCE_LABEL[s])
-              .join('、')}）`,
-        )
+        .map((p) => {
+          const head = `- ${p.code} ${p.name}：${p.description ?? ''}（主要证据来源：${(p.sources ?? [])
+            .map((s) => POINT_SOURCE_LABEL[s])
+            .join('、')}）`;
+          if (!INJECT_BAND_NOTES) return head;
+          // V1.27：附上本点自己的五档判据。通用锚点只说「多数学生稳定表现」，
+          // 说不出这个点的「稳定表现」具体长什么样；逐点判据补的就是这一层。
+          // 未收录判据的点退回单行，不阻断评分。
+          const bands = pointBandPromptLines(p.code);
+          return bands ? `${head}\n${bands}` : head;
+        })
         .join('\n');
       return `【${i.code} ${indName.get(i.code) ?? ''}·${indCat.get(i.code) ?? ''}】\n${lines}`;
     })
