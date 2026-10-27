@@ -41,11 +41,22 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ assetId: string
 
   let upstream: Response | null = null;
   let lastError: unknown = null;
+  /**
+   * 上游地址的 host + path，只用于失败时定位问题。
+   * 刻意剥掉 sign 查询串：那是一次性凭证，不该写进对外响应。
+   */
+  let upstreamHint = '';
   // 存储 CDN 连接抖动是随机偶发的，代理层多给一次机会，
   // 比让播放器直接卡在 0:00 让用户自己刷新体验好得多。
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const signed = await signObjectUrl(verified.objectKey, 300);
+      const signed = await signObjectUrl(verified.objectKey);
+      try {
+        const u = new URL(signed);
+        upstreamHint = `${u.host}${u.pathname}`.slice(0, 200);
+      } catch {
+        upstreamHint = signed.slice(0, 160);
+      }
       const res = await fetch(signed, {
         method,
         headers: range ? { Range: range } : undefined,
@@ -64,7 +75,8 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ assetId: string
 
   if (!upstream) {
     const detail = lastError instanceof Error ? lastError.message : '未知错误';
-    return new Response(`媒体取流失败：${detail}`, {
+    const where = upstreamHint ? `（${upstreamHint}）` : '';
+    return new Response(`媒体取流失败：${detail}${where}`, {
       status: 502,
       headers: { 'content-type': 'text/plain; charset=utf-8' },
     });

@@ -152,8 +152,27 @@ export default function LessonPlayer({ lessonId }: { lessonId: string }) {
       3: '文件解码失败，可能已损坏',
       4: '播放地址暂时不可用（取流失败，或文件已不在存储中）',
     };
-    setMediaError({ code, hint: HINT[code] ?? '未知播放错误' });
-  }, [loadTimeline]);
+    const base = HINT[code] ?? '未知播放错误';
+    // 浏览器只肯给一个 MediaError.code，真正的 403/404/502 藏在后端响应体里。
+    // 补一次探测请求把服务端的话术取回来，否则界面上只有「错误码 4」，等于没线索。
+    let detail = '';
+    if (activeMedia) {
+      try {
+        const res = await fetch(activeMedia, {
+          method: 'GET',
+          headers: { Range: 'bytes=0-1' },
+          cache: 'no-store',
+        });
+        if (!res.ok) {
+          const text = (await res.text()).slice(0, 120).trim();
+          detail = text ? `状态 ${res.status}：${text}` : `状态 ${res.status}`;
+        }
+      } catch {
+        // 探测本身也失败就不追加，保留基础提示，不掩盖原错误
+      }
+    }
+    setMediaError({ code, hint: detail ? `${base}（${detail}）` : base });
+  }, [loadTimeline, activeMedia]);
 
   /** 手动重新加载：重置自动重试额度后再拉一次新签名 */
   const manualReload = useCallback(async () => {
