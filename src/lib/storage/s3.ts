@@ -112,3 +112,9 @@ export async function deleteObject(key: string): Promise<boolean> {
     return false;
   }
 }
+
+/** 列出运行时默认桶里的对象 key（诊断与跨桶迁移用）。 */
+export async function listObjects(prefix?: string): Promise<string[]> {
+  const result = await getStorage().listFiles(prefix ? { prefix } : {});
+  return result.keys;
+}
