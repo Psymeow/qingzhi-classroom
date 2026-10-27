@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { authenticate, AuthError } from '@/lib/auth/server';
 import { deriveAnalyzedStatus } from '@/lib/lesson/status';
+import { isOrgAdmin } from '@/lib/constants/roles';
 
 // ============================================================
 // 机构（组织）基础接口 · V1.11
@@ -62,7 +63,7 @@ export async function GET(req: NextRequest) {
         role: mine.role,
         is_owner: org.owner_id === user.id,
         // 邀请码只对管理员可见，避免普通教师外传
-        invite_code: mine.role === 'admin' ? org.invite_code : null,
+        invite_code: isOrgAdmin(mine.role) ? org.invite_code : null,
       },
       members: members ?? [],
       lessons: list,

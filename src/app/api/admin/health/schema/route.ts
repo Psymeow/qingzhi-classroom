@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { authenticate, AuthError } from '@/lib/auth/server';
+import { AuthError } from '@/lib/auth/server';
+import { requirePlatformAdmin } from '@/lib/auth/platform-admin';
 
 // ============================================================
 // 后台健康自检：GET /api/admin/health/schema
@@ -20,13 +21,9 @@ type SchemaCheckItem = {
 
 export async function GET(req: NextRequest) {
   try {
-    const { db } = await authenticate(req);
-
-    const { data: allowed, error: guardErr } = await db.rpc('is_platform_admin');
-    if (guardErr) {
-      return NextResponse.json({ error: `权限校验失败：${guardErr.message}` }, { status: 500 });
-    }
-    if (!allowed) return NextResponse.json({ error: '没有平台管理权限' }, { status: 403 });
+    const guard = await requirePlatformAdmin(req);
+    if (!guard.ok) return guard.response;
+    const { db } = guard;
 
     const { data, error } = await db.rpc('platform_schema_check');
     if (error) {

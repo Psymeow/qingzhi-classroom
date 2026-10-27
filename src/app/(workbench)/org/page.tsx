@@ -28,12 +28,7 @@ import {
 import { toast } from 'sonner';
 import { orgApi, ApiError, type OrgPayload } from '@/lib/api/client';
 import { statusMeta, formatDate } from '@/lib/lesson/constants';
-
-const ROLE_LABEL: Record<string, string> = {
-  admin: '机构管理员',
-  leader: '教研组长',
-  teacher: '普通教师',
-};
+import { ORG_ROLES, ORG_ROLE_LABEL, isOrgAdmin, orgRoleLabel } from '@/lib/constants/roles';
 
 const ROLE_DESC: Record<string, string> = {
   admin: '管理成员与角色，可查看机构全部课例',
@@ -150,7 +145,7 @@ export default function OrgPage() {
   }
 
   const org = payload?.org ?? null;
-  const isAdmin = org?.role === 'admin';
+  const isAdmin = isOrgAdmin(org?.role);
 
   // ---------- 未加入机构：创建 / 邀请码加入 ----------
   if (!org) {
@@ -234,7 +229,7 @@ export default function OrgPage() {
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             我的角色：
-            <span className="ml-1 font-medium text-foreground">{ROLE_LABEL[org.role] ?? org.role}</span>
+            <span className="ml-1 font-medium text-foreground">{orgRoleLabel(org.role)}</span>
             <span className="mx-1.5 text-muted-foreground/50">·</span>
             {ROLE_DESC[org.role] ?? ''}
           </p>
@@ -319,13 +314,15 @@ export default function OrgPage() {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="admin">机构管理员</SelectItem>
-                            <SelectItem value="leader">教研组长</SelectItem>
-                            <SelectItem value="teacher">普通教师</SelectItem>
+                            {ORG_ROLES.map((r) => (
+                              <SelectItem key={r} value={r}>
+                                {ORG_ROLE_LABEL[r]}
+                              </SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                       ) : (
-                        <span className="text-foreground/80">{ROLE_LABEL[m.role] ?? m.role}</span>
+                        <span className="text-foreground/80">{orgRoleLabel(m.role)}</span>
                       )}
                     </td>
                     <td className="px-2 py-2 text-muted-foreground">{formatDate(m.created_at)}</td>

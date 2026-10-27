@@ -28,6 +28,7 @@ import {
   type PlatformPayload,
   type SchemaHealthPayload,
 } from '@/lib/api/client';
+import { orgRoleLabel } from '@/lib/constants/roles';
 
 type TabKey = 'orgs' | 'users' | 'lessons';
 
@@ -520,7 +521,7 @@ export default function AdminPage() {
                       <td className="px-2 py-2 font-medium text-foreground/90">{u.email || '（无邮箱）'}</td>
                       <td className="px-2 py-2 text-muted-foreground">{u.org_name || '未加入机构'}</td>
                       <td className="px-2 py-2 text-foreground/80">
-                        {u.role === 'admin' ? '机构管理员' : u.role === 'leader' ? '教研组长' : u.role === 'teacher' ? '普通教师' : '—'}
+                        {orgRoleLabel(u.role)}
                       </td>
                       <td className="px-2 py-2 text-right tabular-nums text-foreground/80">{u.lesson_count}</td>
                       <td className="px-2 py-2 text-muted-foreground">{u.joined_at}</td>

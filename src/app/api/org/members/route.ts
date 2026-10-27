@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { authenticate, AuthError } from '@/lib/auth/server';
+import { ORG_ROLES, isOrgAdmin } from '@/lib/constants/roles';
 
 // ============================================================
 // 机构成员管理（仅 admin 可调用）
@@ -11,7 +12,7 @@ import { authenticate, AuthError } from '@/lib/auth/server';
 
 const patchSchema = z.object({
   user_id: z.string().min(1),
-  role: z.enum(['admin', 'leader', 'teacher']),
+  role: z.enum(ORG_ROLES),
 });
 
 interface MyMember {
@@ -31,7 +32,7 @@ async function requireAdmin(
     .maybeSingle();
   const row = mine as MyMember | null;
   if (!row) return { error: NextResponse.json({ error: '你还没有归属机构' }, { status: 400 }) };
-  if (row.role !== 'admin') return { error: NextResponse.json({ error: '只有机构管理员可以管理成员' }, { status: 403 }) };
+  if (!isOrgAdmin(row.role)) return { error: NextResponse.json({ error: '只有机构管理员可以管理成员' }, { status: 403 }) };
   return { orgId: row.org_id };
 }
 

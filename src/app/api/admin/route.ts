@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { authenticate, AuthError } from '@/lib/auth/server';
+import { AuthError } from '@/lib/auth/server';
+import { requirePlatformAdmin } from '@/lib/auth/platform-admin';
 
 // 后台数据每次都要现算，且失败不能被缓存（缓存住的失败 = 永久白屏）
 export const dynamic = 'force-dynamic';
@@ -37,22 +38,38 @@ function errText(e: unknown): string {
   return msg || '未知错误';
 }
 
+const DEFAULT_LIMIT = 500;
+const MAX_LIMIT = 2000;
+
+// 白名单校验：只接受 1..MAX_LIMIT 的纯数字；其他输入一律报错，
+// 不静默退回默认值——静默处理会让「限 50 条」变成「看全部」，是善研踩过的坑。
+function parseLimit(raw: string | null): number | { error: string } {
+  const invalid = { error: `limit 必须是 1-${MAX_LIMIT} 之间的整数` };
+  if (raw === null || raw.trim() === '') return DEFAULT_LIMIT;
+  const s = raw.trim();
+  if (!/^\d{1,4}$/.test(s)) return invalid;
+  const n = Number(s);
+  if (n < 1 || n > MAX_LIMIT) return invalid;
+  return n;
+}
+
 export async function GET(req: NextRequest) {
   try {
-    const { db } = await authenticate(req);
+    const guard = await requirePlatformAdmin(req);
+    if (!guard.ok) return guard.response;
+    const { db } = guard;
 
-    const { data: allowed, error: guardErr } = await db.rpc('is_platform_admin');
-    if (guardErr) {
-      console.error('[admin] is_platform_admin 失败', guardErr.message);
-      return NextResponse.json({ error: `权限校验失败：${guardErr.message}` }, { status: 500 });
+    // 枚举参数白名单：非法值直接 400，不静默退化成「无筛选」或默认值
+    const limit = parseLimit(req.nextUrl.searchParams.get('limit'));
+    if (typeof limit !== 'number') {
+      return NextResponse.json({ error: limit.error }, { status: 400 });
     }
-    if (!allowed) return NextResponse.json({ error: '没有平台管理权限' }, { status: 403 });
 
     const settled = await Promise.allSettled([
       db.rpc('platform_overview'),
       db.rpc('platform_orgs'),
       db.rpc('platform_users'),
-      db.rpc('platform_lessons', { p_limit: 500 }),
+      db.rpc('platform_lessons', { p_limit: limit }),
     ]);
 
     const data: Record<BlockKey, unknown> = { ...FALLBACK };

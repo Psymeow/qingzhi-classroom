@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireUser, userClient, AuthError } from '@/lib/auth/server';
+import { isPlatformAdmin } from '@/lib/auth/platform-admin';
 
 const profileSchema = z.object({
   display_name: z.string().trim().max(128).nullable().optional(),
@@ -15,8 +16,7 @@ export async function GET(req: NextRequest) {
     const user = await requireUser(req);
     const db = await userClient(req);
 
-    const isAdminResult = await db.rpc('is_platform_admin');
-    const platformAdmin = isAdminResult.data === true;
+    const platformAdmin = await isPlatformAdmin(db);
 
     let { data: profile } = await db.from('profiles').select('*').eq('id', user.id).maybeSingle();
     if (!profile) {
