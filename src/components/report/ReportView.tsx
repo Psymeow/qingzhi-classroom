@@ -464,11 +464,11 @@ export default function ReportView({
         n="2"
         id="sec-dims"
         title="五维拆开看"
-        hint="这一节回答「五个维度各几分、分是怎么算出来的」——每一维的分数都能用二级指标均值验算。"
+        hint="这一节回答「五个维度各几分、这一维到底表现得怎么样、下一步怎么改」。"
         questions={[
-          '这个维度分，用下面的二级指标均值能算出来吗？',
+          '这个维度表现得怎么样？',
           '地图里哪几格是空的？为什么空？',
-          '标了待复核的维度，是来源冲突还是对账缺口？',
+          '哪些维度还需要老师人工再确认一遍？',
         ]}
       />
 
@@ -603,11 +603,7 @@ export default function ReportView({
                       )}
                       {d.need_review && (
                         <Badge variant="outline" className="border-amber-300 text-[10px] text-amber-700">
-                          {d.review_reason === 'both'
-                            ? '待复核·冲突+缺口'
-                            : d.review_reason === 'reconcile_gap'
-                              ? '待复核·对账缺口'
-                              : '待复核·来源冲突'}
+                          待复核
                         </Badge>
                       )}
                     </div>
@@ -634,26 +630,10 @@ export default function ReportView({
                     band={d.level_label ?? null}
                     pending={d.indicators.filter((i) => i.score === null).length}
                   />
-                  {/* V1.8 分数对账：报告里也给出可验算的口径，避免"指标分与维度分对不上" */}
-                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] leading-relaxed text-muted-foreground print:text-[9pt]">
-                    {d.reconcile_method === 'indicator_aggregate' ? (
-                      <span>
-                        对账：{d.indicators.filter((i) => i.score !== null).length} 项二级指标均值 ={' '}
-                        <span className="font-medium tabular-nums text-foreground">
-                          {(d.indicator_avg ?? d.score ?? 0).toFixed(1)}
-                        </span>
-                      </span>
-                    ) : d.reconcile_method === 'source_fusion' ? (
-                      <span>该维度无二级指标，分数由多来源融合得出</span>
-                    ) : null}
-                    {typeof d.reconcile_gap === 'number' && (
-                      <span>
-                        · 多来源参考 {typeof d.source_fused === 'number' ? d.source_fused.toFixed(1) : '—'}
-                        ，差 {d.reconcile_gap.toFixed(1)}
-                        {d.need_review ? '（待复核）' : ''}
-                      </span>
-                    )}
-                  </div>
+                  {/* V1.31 分数对账不再出现在报告里：
+                      「二级指标均值 5.8 · 多来源参考 6.0，差 0.2」这类验算细节是复核工具的语境，
+                      放在给读者的报告上只会让人以为分数有问题（且这课的「多来源」实际只有
+                      音视频对话 + 教学设计两路）。验算与复核入口保留在课例页分析面板。 */}
                   {/* V1.26 维度理论依据：评分标准站在什么理论上，默认收起，导出打印时展开 */}
                   <TheoryAnchorTag dimensionCode={d.dimension_code} />
                   {/* V1.17 维度级 AI 解读：依据/为什么/怎么读/怎么提升，默认收起，导出打印时展开 */}

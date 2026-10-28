@@ -232,13 +232,9 @@ function DomainBlock({
           {coverLow ? '已提交材料中可找到证据的观察点偏少，结论仅供参考，建议补充材料后重新分析。' : ''}
         </p>
       )}
-      {domain.chain_gap_avg != null && (domain.chain_compared ?? 0) > 0 && (
-        <p className="rounded-md border border-border/60 bg-muted/30 px-3 py-1.5 text-[11px] leading-relaxed text-muted-foreground">
-          两条评分链对账：{domain.chain_compared} 个指标两侧都有分，本域与五维指标直评的平均差异{' '}
-          <span className="font-medium text-foreground">{domain.chain_gap_avg.toFixed(1)}</span> 分
-          {domain.chain_gap_avg <= 1 ? '（口径一致）' : '（两套尺子松紧仍有差距，建议复核）'}。
-        </p>
-      )}
+      {/* V1.31 移除「两条评分链对账」提示：
+          速读口径已统一到五维直评，本域分数不再与五维并排出现，
+          「两套尺子差多少」对读者没有意义，只增加困惑。 */}
       {groups.map((g) => (
         <div key={g.category} className="space-y-1.5">
           <div className="px-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
