@@ -454,8 +454,6 @@ export interface EssenceHeadline {
   cognitive_100: number | null;
   /** 情感侧（数学情感素养 D3）0-100，与下方五维表同源同尺；无数据为 null */
   affective_100: number | null;
-  /** 情智融合实施（D1 设计 + D4 实施 均值 ×10 → 0-100），无数据为 null */
-  fusion_100: number | null;
   /**
    * 判读结论：两个向度的共同水平，不比较高下 —— 情智俱佳 / 情智稳步 / 情智待启 / 材料不足。
    * 认知与情感衡量的是不同向度，「谁比谁高」不构成有意义的结论，故不做跨向度比较。

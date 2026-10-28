@@ -1,6 +1,6 @@
 'use client';
 
-import { Brain, Heart, Gauge, Sparkles, Target, ChevronDown, AlertTriangle } from 'lucide-react';
+import { Brain, Heart, Sparkles, Target, ChevronDown, AlertTriangle } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import type { AnalysisReport, EssenceHeadline } from '@/lib/evaluation/types';
 
@@ -18,19 +18,14 @@ export function deriveEssenceHeadline(report: AnalysisReport): EssenceHeadline {
   // 出现两个不同数字、方向还相反（本例内涵链 35<36、五维链 54>51），读者无从判断。
   const dimScore = (code: string) =>
     report.dimension_results.find((d) => d.dimension_code === code)?.score ?? null;
-  const d1 = dimScore('D1');
-  const d2 = dimScore('D2');
-  const d3 = dimScore('D3');
-  const d4 = dimScore('D4');
+  // V1.32 摘掉「融合落地」卡：D1「情智融合设计」量教案里的设计意图（应然），
+  // D4「情智共生实施」量课堂实际发生（实然），把「想的」和「做的」平均，
+  // 得到的数既不代表设计水平也不代表实施水平；且落差才是信息，平均恰恰把
+  // 「设计好但落地打折」这个最该被看见的信号抹掉了。D1/D4 的正位在下方五维表。
   const to100 = (v: number | null) => (v === null ? null : v * 10);
 
-  const cog = to100(d2);
-  const aff = to100(d3);
-
-  const fusionParts = [d1, d4].filter((x): x is number => x !== null);
-  const fusion = fusionParts.length
-    ? fusionParts.reduce((a, b) => a + b, 0) / fusionParts.length
-    : null;
+  const cog = to100(dimScore('D2'));
+  const aff = to100(dimScore('D3'));
 
   // 判读只看两个向度的共同水平（短板），不做认知 vs 情感的高低比较：
   // 两者衡量不同向度，「智强情弱」「情浓智浅」这类结论本身不成立。
@@ -52,7 +47,6 @@ export function deriveEssenceHeadline(report: AnalysisReport): EssenceHeadline {
   return {
     cognitive_100: cog,
     affective_100: aff,
-    fusion_100: fusion,
     state,
     material_ready: availability.filter(Boolean).length,
     material_total: availability.length,
@@ -127,8 +121,8 @@ export default function EssenceOnePager({ report }: { report: AnalysisReport }) 
           </div>
         </div>
 
-        {/* 三个数：情 / 智 / 融合落地 */}
-        <div className="grid grid-cols-3 gap-2">
+        {/* 两个向度：智 / 情（V1.32 起不再并列「融合落地」平均值，理由见 deriveEssenceHeadline） */}
+        <div className="grid grid-cols-2 gap-2">
           <div className="rounded-lg border border-border/70 bg-card/70 px-3 py-2">
             <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
               <Brain className="h-3 w-3" /> 认知侧
@@ -148,17 +142,6 @@ export default function EssenceOnePager({ report }: { report: AnalysisReport }) 
               <span className="ml-0.5 text-[11px] font-normal text-muted-foreground">/100</span>
             </div>
             <div className="text-[10px] text-muted-foreground">情感素养 8 指标</div>
-          </div>
-          <div className="rounded-lg border border-border/70 bg-card/70 px-3 py-2">
-            <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
-              <Gauge className="h-3 w-3" /> 融合落地
-            </div>
-            <div className="mt-0.5 text-xl font-bold tabular-nums text-foreground">
-              {/* D1/D4 维度分是 0-10，字段名虽叫 fusion_100 但存的是 10 分制值——这里 ×10 与左侧两卡统一 */}
-              {headline.fusion_100 === null ? '—' : (headline.fusion_100 * 10).toFixed(1)}
-              <span className="ml-0.5 text-[11px] font-normal text-muted-foreground">/100</span>
-            </div>
-            <div className="text-[10px] text-muted-foreground">设计 + 实施均值（D1+D4）</div>
           </div>
         </div>
 

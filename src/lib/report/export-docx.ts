@@ -319,12 +319,9 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
   const dim100 = (v: number | null) => (v === null ? null : v * 10);
   const cog100 = dim100(dimOf('D2'));
   const aff100 = dim100(dimOf('D3'));
-  const fusion = (() => {
-    const d1 = report.dimension_results.find((d) => d.dimension_code === 'D1')?.score;
-    const d4 = report.dimension_results.find((d) => d.dimension_code === 'D4')?.score;
-    if (d1 === null || d1 === undefined || d4 === null || d4 === undefined) return null;
-    return ((d1 + d4) / 2) * 10;
-  })();
+  // V1.32 不再输出「融合落地」（D1 与 D4 的平均）：D1 量设计意图、D4 量课堂实然，
+  // 平均既不代表设计水平也不代表实施水平，还会把「设计好但落地打折」的落差信号抹掉。
+  // D1/D4 的完整展示仍在下方五维表。
 
   // 判读只看两个向度的共同水平（短板），不比较高下
   const stateLabel = (() => {
@@ -337,18 +334,16 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
 
   children.push(
     table(
-      [2200, 1500, 2200, 1500, 2600],
+      [1800, 1600, 1800, 2800],
       [
         [
           headCell('认知素养（高阶思维 D2）'),
           headCell('情感素养（D3）', undefined, AlignmentType.CENTER),
-          headCell('情智融合实施（D1+D4）', undefined, AlignmentType.CENTER),
           headCell('判读', undefined, AlignmentType.CENTER),
         ],
         [
           bodyCell(cog100 === null ? '—' : `${cog100.toFixed(1)} / 100`, { bold: true, color: scoreHex((cog100 ?? 0) / 10), align: AlignmentType.CENTER }),
           bodyCell(aff100 === null ? '—' : `${aff100.toFixed(1)} / 100`, { bold: true, color: scoreHex((aff100 ?? 0) / 10), align: AlignmentType.CENTER }),
-          bodyCell(fusion === null ? '—' : `${(fusion * 10).toFixed(1)} / 100`, { align: AlignmentType.CENTER }),
           bodyCell(stateLabel, { bold: true, color: BRAND, align: AlignmentType.CENTER }),
         ],
       ],
