@@ -450,16 +450,17 @@ export interface AiCommentary {
 
 /** 情智双侧速读（V1.11）：由报告派生，不落库 */
 export interface EssenceHeadline {
-  /** 认知侧（数学高阶思维）0-100，无数据为 null */
+  /** 认知侧（数学高阶思维 D2）0-100，与下方五维表同源同尺；无数据为 null */
   cognitive_100: number | null;
-  /** 情感侧（数学情感素养）0-100，无数据为 null */
+  /** 情感侧（数学情感素养 D3）0-100，与下方五维表同源同尺；无数据为 null */
   affective_100: number | null;
-  /** 情智落差（认知 − 情感），任一侧无数据为 null */
-  gap: number | null;
-  /** 情智融合实施（D1 设计 + D4 实施 均值，0-10），无数据为 null */
+  /** 情智融合实施（D1 设计 + D4 实施 均值 ×10 → 0-100），无数据为 null */
   fusion_100: number | null;
-  /** 判读结论：共融 / 同步起步 / 智强情弱 / 情浓智浅 / 双弱待启 / 数据不足 */
-  state: "synergy" | "parallel" | "cognition_leading" | "affect_leading" | "both_weak" | "insufficient";
+  /**
+   * 判读结论：两个向度的共同水平，不比较高下 —— 情智俱佳 / 情智稳步 / 情智待启 / 材料不足。
+   * 认知与情感衡量的是不同向度，「谁比谁高」不构成有意义的结论，故不做跨向度比较。
+   */
+  state: "strong" | "mid" | "weak" | "insufficient";
   /** 材料齐备路数 / 应备路数 */
   material_ready: number;
   material_total: number;

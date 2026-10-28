@@ -54,24 +54,25 @@ function buildDigest(report: AnalysisReport, std: RubricStandard): string {
     if (evidence) lines.push(`  代表性证据：${evidence.slice(0, 120)}`);
   }
 
-  // 情智双侧：让评语能落在「情」与「智」的关系上，而不是只谈总分高低
+  // 情智双侧：分别呈现两个向度的水平，不提供高低比较信息。
+  // 早期版本直接喂给模型「情智落差：X 分（认知高于情感）」，评语自然会带出
+  // 「智强情弱」这类跨向度比较结论——而认知与情感本就不是同一把尺子上的两点。
+  const dimOf = (code: string) =>
+    report.dimension_results.find((d) => d.dimension_code === code) ?? null;
+  const d2 = dimOf('D2');
+  const d3 = dimOf('D3');
+  if (d2 || d3) {
+    lines.push('', '【情智双侧】');
+    if (d2?.score != null) {
+      lines.push(`- 认知侧（数学高阶思维）：${(d2.score * 10).toFixed(1)} / 100`);
+    }
+    if (d3?.score != null) {
+      lines.push(`- 情感侧（数学情感素养）：${(d3.score * 10).toFixed(1)} / 100`);
+    }
+  }
   const ess = report.essence_eval;
   if (ess?.llm_used) {
-    const cog = ess.cognitive;
-    const aff = ess.affective;
-    lines.push('', '【情智双侧】');
-    lines.push(
-      `- 认知侧（${cog.name}）${cog.score_100 ?? '—'} / 100，有分观察点 ${cog.scored_points}/${cog.total_points}`,
-    );
-    lines.push(
-      `- 情感侧（${aff.name}）${aff.score_100 ?? '—'} / 100，有分观察点 ${aff.scored_points}/${aff.total_points}`,
-    );
-    if (cog.score_100 !== null && aff.score_100 !== null) {
-      const gap = Math.abs(cog.score_100 - aff.score_100);
-      const side = cog.score_100 >= aff.score_100 ? '认知高于情感' : '情感高于认知';
-      lines.push(`- 情智落差：${gap.toFixed(1)} 分（${side}）`);
-    }
-    const weakPoints = [...cog.indicators, ...aff.indicators]
+    const weakPoints = [...ess.cognitive.indicators, ...ess.affective.indicators]
       .filter((i) => i.score !== null && (i.score ?? 0) < 6)
       .slice(0, 4)
       .map((i) => `${i.name}(${i.score})`);

@@ -13,31 +13,33 @@ import type { AnalysisReport, EssenceHeadline } from '@/lib/evaluation/types';
 
 /** 从报告派生情智速读指标（纯函数，便于复用与复核） */
 export function deriveEssenceHeadline(report: AnalysisReport): EssenceHeadline {
-  const ess = report.essence_eval ?? null;
-  const cog = ess?.llm_used ? (ess.cognitive.score_100 ?? null) : null;
-  const aff = ess?.llm_used ? (ess.affective.score_100 ?? null) : null;
-  const gap = cog !== null && aff !== null ? Math.abs(cog - aff) : null;
-
+  // 认知/情感取自五维直评口径（D2 / D3），与下方五维表同源同尺。
+  // 早期版本取的是 essence_eval 的观察点链（chain 口径），结果同一个域在同一页上
+  // 出现两个不同数字、方向还相反（本例内涵链 35<36、五维链 54>51），读者无从判断。
   const dimScore = (code: string) =>
     report.dimension_results.find((d) => d.dimension_code === code)?.score ?? null;
   const d1 = dimScore('D1');
+  const d2 = dimScore('D2');
+  const d3 = dimScore('D3');
   const d4 = dimScore('D4');
+  const to100 = (v: number | null) => (v === null ? null : v * 10);
+
+  const cog = to100(d2);
+  const aff = to100(d3);
+
   const fusionParts = [d1, d4].filter((x): x is number => x !== null);
   const fusion = fusionParts.length
     ? fusionParts.reduce((a, b) => a + b, 0) / fusionParts.length
     : null;
 
+  // 判读只看两个向度的共同水平（短板），不做认知 vs 情感的高低比较：
+  // 两者衡量不同向度，「智强情弱」「情浓智浅」这类结论本身不成立。
   let state: EssenceHeadline['state'] = 'insufficient';
   if (cog !== null && aff !== null) {
-    if (gap !== null && gap <= 10) {
-      if (cog >= 70 && aff >= 70) state = 'synergy';
-      else if (cog < 60 && aff < 60) state = 'both_weak';
-      else state = 'parallel';
-    } else if (cog - aff > 10) {
-      state = 'cognition_leading';
-    } else {
-      state = 'affect_leading';
-    }
+    const floor = Math.min(cog, aff);
+    if (floor >= 70) state = 'strong';
+    else if (floor >= 60) state = 'mid';
+    else state = 'weak';
   }
 
   const availability = Object.values(report.source_availability ?? {}) as boolean[];
@@ -50,7 +52,6 @@ export function deriveEssenceHeadline(report: AnalysisReport): EssenceHeadline {
   return {
     cognitive_100: cog,
     affective_100: aff,
-    gap,
     fusion_100: fusion,
     state,
     material_ready: availability.filter(Boolean).length,
@@ -64,39 +65,27 @@ const STATE_META: Record<
   EssenceHeadline['state'],
   { label: string; desc: string; badge: string; ring: string }
 > = {
-  synergy: {
-    label: '情智共融',
-    desc: '情感体验与思维发展同时立住了，学生「愿意想」也「想得动」。',
+  strong: {
+    label: '情智俱佳',
+    desc: '思维发展与情感培育都处在良好以上，两个向度都立住了。',
     badge: 'bg-emerald-100 text-emerald-700 border-emerald-200',
     ring: 'from-emerald-50/80',
   },
-  parallel: {
-    label: '情智同步起步',
-    desc: '情感与思维大体同步，但两侧都还在中段，尚未形成相互推高的循环。',
+  mid: {
+    label: '情智稳步',
+    desc: '两个向度都处在中段，是本课下一步可以抬升的空间所在。',
     badge: 'bg-sky-100 text-sky-700 border-sky-200',
     ring: 'from-sky-50/80',
   },
-  cognition_leading: {
-    label: '智强情弱',
-    desc: '思维任务铺得开，但学生的情感投入没有跟上，容易出现「会做但不想做」。',
-    badge: 'bg-indigo-100 text-indigo-700 border-indigo-200',
-    ring: 'from-indigo-50/80',
-  },
-  affect_leading: {
-    label: '情浓智浅',
-    desc: '课堂氛围活跃、学生愿意参与，但思维挑战与认知深度相对不足。',
-    badge: 'bg-rose-100 text-rose-700 border-rose-200',
-    ring: 'from-rose-50/80',
-  },
-  both_weak: {
+  weak: {
     label: '情智待启',
-    desc: '情感与思维两侧都偏弱，优先从「一个能让学生想说话的开放问题」重启。',
+    desc: '两个向度都还有距离，优先从「一个能让学生想说话的开放问题」重启。',
     badge: 'bg-amber-100 text-amber-700 border-amber-200',
     ring: 'from-amber-50/80',
   },
   insufficient: {
     label: '材料不足',
-    desc: '缺少课堂转写或观察点材料，情智两侧无法判读；补齐后可重新生成。',
+    desc: '缺少课堂转写或观察点材料，两个向度无法判读；补齐后可重新生成。',
     badge: 'bg-muted text-muted-foreground border-border',
     ring: 'from-muted/60',
   },
@@ -158,9 +147,7 @@ export default function EssenceOnePager({ report }: { report: AnalysisReport }) 
               {fmt(headline.affective_100)}
               <span className="ml-0.5 text-[11px] font-normal text-muted-foreground">/100</span>
             </div>
-            <div className="text-[10px] text-muted-foreground">
-              情智落差 {headline.gap === null ? '—' : headline.gap.toFixed(1)}
-            </div>
+            <div className="text-[10px] text-muted-foreground">情感素养 8 指标</div>
           </div>
           <div className="rounded-lg border border-border/70 bg-card/70 px-3 py-2">
             <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
@@ -227,7 +214,7 @@ export default function EssenceOnePager({ report }: { report: AnalysisReport }) 
                 <span>材料未齐（{headline.material_ready}/{headline.material_total} 路），缺材料项不计分、不进均分，补齐后重新分析可获得完整情智判读。</span>
               </>
             ) : (
-              <span>认知侧取「数学高阶思维」观察点聚合，情感侧取「数学情感素养」观察点聚合；两侧不同口径，只看趋势不看绝对高低。</span>
+              <span>认知侧取「数学高阶思维」（D2）、情感侧取「数学情感素养」（D3）维度分，与下方五维表同源同尺。两者衡量不同向度，分别看水平，不作高低比较。</span>
             )}
           </div>
           <a

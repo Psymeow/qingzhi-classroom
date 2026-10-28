@@ -312,12 +312,13 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
     }),
   );
 
-  // 情智双侧速读：由报告派生，与页面 EssenceOnePager 同口径
-  const cognitive = report.essence_eval?.cognitive ?? null;
-  const affective = report.essence_eval?.affective ?? null;
-  const cog100 = cognitive?.score_100 ?? null;
-  const aff100 = affective?.score_100 ?? null;
-  const gap = cog100 !== null && aff100 !== null ? cog100 - aff100 : null;
+  // 情智双侧速读：认知/情感取五维直评口径（D2 / D3）×10 → 0-100，与页面 EssenceOnePager 同口径。
+  // 不做认知 vs 情感的高低比较：两者衡量不同向度，「智强情弱」这类结论本身不成立。
+  const dimOf = (code: string) =>
+    report.dimension_results.find((d) => d.dimension_code === code)?.score ?? null;
+  const dim100 = (v: number | null) => (v === null ? null : v * 10);
+  const cog100 = dim100(dimOf('D2'));
+  const aff100 = dim100(dimOf('D3'));
   const fusion = (() => {
     const d1 = report.dimension_results.find((d) => d.dimension_code === 'D1')?.score;
     const d4 = report.dimension_results.find((d) => d.dimension_code === 'D4')?.score;
@@ -325,30 +326,28 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
     return ((d1 + d4) / 2) * 10;
   })();
 
-  const stateLabel =
-    gap === null
-      ? '数据不足'
-      : Math.abs(gap) <= 8
-        ? '认知与情感同步'
-        : gap > 0
-          ? '智强情弱'
-          : '情浓智浅';
+  // 判读只看两个向度的共同水平（短板），不比较高下
+  const stateLabel = (() => {
+    if (cog100 === null || aff100 === null) return '材料不足';
+    const floor = Math.min(cog100, aff100);
+    if (floor >= 70) return '情智俱佳';
+    if (floor >= 60) return '情智稳步';
+    return '情智待启';
+  })();
 
   children.push(
     table(
       [2200, 1500, 2200, 1500, 2600],
       [
         [
-          headCell('认知素养（高阶思维）'),
-          headCell('情感素养', undefined, AlignmentType.CENTER),
-          headCell('情智落差', undefined, AlignmentType.CENTER),
+          headCell('认知素养（高阶思维 D2）'),
+          headCell('情感素养（D3）', undefined, AlignmentType.CENTER),
           headCell('情智融合实施（D1+D4）', undefined, AlignmentType.CENTER),
           headCell('判读', undefined, AlignmentType.CENTER),
         ],
         [
           bodyCell(cog100 === null ? '—' : `${cog100.toFixed(1)} / 100`, { bold: true, color: scoreHex((cog100 ?? 0) / 10), align: AlignmentType.CENTER }),
           bodyCell(aff100 === null ? '—' : `${aff100.toFixed(1)} / 100`, { bold: true, color: scoreHex((aff100 ?? 0) / 10), align: AlignmentType.CENTER }),
-          bodyCell(gap === null ? '—' : `${gap > 0 ? '+' : ''}${gap.toFixed(1)}`, { bold: true, align: AlignmentType.CENTER }),
           bodyCell(fusion === null ? '—' : `${(fusion * 10).toFixed(1)} / 100`, { align: AlignmentType.CENTER }),
           bodyCell(stateLabel, { bold: true, color: BRAND, align: AlignmentType.CENTER }),
         ],
