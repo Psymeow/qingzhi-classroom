@@ -270,15 +270,6 @@ export default function ReportView({
     Object.keys(result.source_availability) as Array<keyof typeof result.source_availability>
   ).filter((k) => result.source_availability[k]).length;
   const insufficientBasis = availableSourceCount <= 1;
-  // 指标覆盖率：让使用者看清本次实际评到了多少个指标点，未覆盖不等于 0 分
-  const indicatorStats = result.dimension_results.reduce(
-    (acc, d) => {
-      acc.total += d.indicators.length;
-      acc.scored += d.indicators.filter((ind) => ind.score !== null && ind.score !== undefined).length;
-      return acc;
-    },
-    { scored: 0, total: 0 },
-  );
   const events = [...(ann?.events ?? [])].sort((a, b) => (a.time_sec ?? 0) - (b.time_sec ?? 0));
   const seating = ann?.seating;
   const commentary = result.ai_commentary;
@@ -418,18 +409,15 @@ export default function ReportView({
             <div className="text-xs text-muted-foreground">综合得分</div>
             <div className="mt-1 bg-brand-gradient bg-clip-text text-5xl font-bold tabular-nums text-transparent">
               {result.total_score.toFixed(1)}
+              <span className="ml-1 text-lg font-medium text-muted-foreground">/ 100</span>
             </div>
             <Badge className={`mt-2 ${levelColorClass(result.total_level)}`}>{result.total_level}</Badge>
             <div className="mt-2 w-full max-w-[16rem]">
-              <ScaleBar score={result.total_score} band={result.total_level} showMeta={false} />
+              {/* total_score 是百分制，而刻度条按 0-10 绘制：必须换算，否则条恒为满格，纯属误导 */}
+              <ScaleBar score={result.total_score / 10} band={result.total_level} showMeta={false} />
             </div>
-            <div className="mt-3 text-[11px] text-muted-foreground">
-              满分 10 · 五维综合
-              {indicatorStats.total > 0 && (
-                <span className="ml-1">
-                  ｜ 指标覆盖 {indicatorStats.scored}/{indicatorStats.total}
-                </span>
-              )}
+            <div className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
+              满分 100 · 五维加权平均 ×10
             </div>
             {insufficientBasis && (
               <div className="mt-2 flex items-start gap-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] leading-snug text-amber-800 print:border-amber-300 print:bg-amber-50">
@@ -455,6 +443,8 @@ export default function ReportView({
                     stroke="#5b54e6"
                     fill="#5b54e6"
                     fillOpacity={0.32}
+                    dot={{ r: 3, fill: '#5b54e6', strokeWidth: 0 }}
+                    label={{ position: 'top', fontSize: 11, fontWeight: 600, fill: '#4338ca' }}
                   />
                 </RadarChart>
               </ResponsiveContainer>

@@ -167,10 +167,11 @@ export default function EssenceOnePager({ report }: { report: AnalysisReport }) 
               <Gauge className="h-3 w-3" /> 融合落地
             </div>
             <div className="mt-0.5 text-xl font-bold tabular-nums text-foreground">
-              {fmt(headline.fusion_100)}
-              <span className="ml-0.5 text-[11px] font-normal text-muted-foreground">/10</span>
+              {/* D1/D4 维度分是 0-10，字段名虽叫 fusion_100 但存的是 10 分制值——这里 ×10 与左侧两卡统一 */}
+              {headline.fusion_100 === null ? '—' : (headline.fusion_100 * 10).toFixed(1)}
+              <span className="ml-0.5 text-[11px] font-normal text-muted-foreground">/100</span>
             </div>
-            <div className="text-[10px] text-muted-foreground">设计 + 实施均值</div>
+            <div className="text-[10px] text-muted-foreground">设计 + 实施均值（D1+D4）</div>
           </div>
         </div>
 

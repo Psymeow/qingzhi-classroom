@@ -305,6 +305,11 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
         new TextRun({ text: '  / 100', size: 22, color: MUTED }),
       ],
     }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 200 },
+      children: [t('满分 100 · 由五维加权平均 × 10 换算', { size: 18, color: MUTED })],
+    }),
   );
 
   // 情智双侧速读：由报告派生，与页面 EssenceOnePager 同口径
@@ -337,14 +342,14 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
           headCell('认知素养（高阶思维）'),
           headCell('情感素养', undefined, AlignmentType.CENTER),
           headCell('情智落差', undefined, AlignmentType.CENTER),
-          headCell('情智融合实施', undefined, AlignmentType.CENTER),
+          headCell('情智融合实施（D1+D4）', undefined, AlignmentType.CENTER),
           headCell('判读', undefined, AlignmentType.CENTER),
         ],
         [
           bodyCell(cog100 === null ? '—' : `${cog100.toFixed(1)} / 100`, { bold: true, color: scoreHex((cog100 ?? 0) / 10), align: AlignmentType.CENTER }),
           bodyCell(aff100 === null ? '—' : `${aff100.toFixed(1)} / 100`, { bold: true, color: scoreHex((aff100 ?? 0) / 10), align: AlignmentType.CENTER }),
           bodyCell(gap === null ? '—' : `${gap > 0 ? '+' : ''}${gap.toFixed(1)}`, { bold: true, align: AlignmentType.CENTER }),
-          bodyCell(fusion === null ? '—' : `${fusion.toFixed(1)} / 100`, { align: AlignmentType.CENTER }),
+          bodyCell(fusion === null ? '—' : `${(fusion * 10).toFixed(1)} / 100`, { align: AlignmentType.CENTER }),
           bodyCell(stateLabel, { bold: true, color: BRAND, align: AlignmentType.CENTER }),
         ],
       ],
