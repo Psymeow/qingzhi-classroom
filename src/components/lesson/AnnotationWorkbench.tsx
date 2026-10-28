@@ -216,13 +216,58 @@ export default function AnnotationWorkbench({
         phase: null,
         time_sec: null,
       };
-      mutate((prev) => ({ ...prev, interactions: [...prev.interactions, edge] }));
+      mutate((prev) => {
+        // 去重：同一对座位（方向相同）只留一条。画布上箭头是按坐标叠在一起的，
+        // 重复连线完全看不出来，用户会以为「没点上」再点一次，结果越积越多。
+        // 所以第二次连线不新增，而是把已有那条的类型/双向改成这次选的值。
+        const idx = prev.interactions.findIndex(
+          (e) => e.from_seat_id === edge.from_seat_id && e.to_seat_id === edge.to_seat_id,
+        );
+        if (idx >= 0) {
+          const next = [...prev.interactions];
+          next[idx] = { ...next[idx], type: edge.type, bidirectional: edge.bidirectional };
+          return { ...prev, interactions: next };
+        }
+        return { ...prev, interactions: [...prev.interactions, edge] };
+      });
     },
     [mutate],
   );
 
   const removeInteraction = useCallback(
     (id: string) => mutate((prev) => ({ ...prev, interactions: prev.interactions.filter((e) => e.id !== id) })),
+    [mutate],
+  );
+
+  // 一键清空：标注往往要反复试，只能一条条删（且画布上重叠的还删不准）时几乎没法重来。
+  // 角色与连线分开清，座位姓名是花名册信息，不跟着清。
+  const clearInteractions = useCallback(() => mutate((prev) => ({ ...prev, interactions: [] })), [mutate]);
+  // 历史遗留的重复连线：同向同座位对只留最后一条（最后一条最接近用户当前意图）
+  const dedupInteractions = useCallback(
+    () =>
+      mutate((prev) => {
+        const seen = new Set<string>();
+        const kept: InteractionEdge[] = [];
+        for (let i = prev.interactions.length - 1; i >= 0; i -= 1) {
+          const e = prev.interactions[i];
+          const k = `${e.from_seat_id}>${e.to_seat_id}`;
+          if (seen.has(k)) continue;
+          seen.add(k);
+          kept.unshift(e);
+        }
+        return kept.length === prev.interactions.length ? prev : { ...prev, interactions: kept };
+      }),
+    [mutate],
+  );
+  const clearRoles = useCallback(
+    () =>
+      mutate((prev) => ({
+        ...prev,
+        seating: {
+          ...prev.seating,
+          students: (prev.seating.students as SeatStudent[]).map((s) => ({ ...s, role: null })),
+        },
+      })),
     [mutate],
   );
 
@@ -349,6 +394,9 @@ export default function AnnotationWorkbench({
           onRenameSeat={renameSeat}
           onAddInteraction={addInteraction}
           onRemoveInteraction={removeInteraction}
+          onClearInteractions={clearInteractions}
+          onClearRoles={clearRoles}
+          onDedupInteractions={dedupInteractions}
         />
       )}
 
