@@ -292,11 +292,12 @@ export default function SeatingCanvas({
             <button
               type="button"
               onClick={() => setRoleBrush(null)}
+              title="橡皮擦：只取消笔刷，不改动已经标好的角色。要清空全部角色请用右侧「清空角色」"
               className={`rounded-md border px-2 py-1 text-xs ${
                 roleBrush === null ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border bg-card text-muted-foreground'
               }`}
             >
-              清除
+              橡皮擦
             </button>
           </div>
         )}
@@ -335,8 +336,8 @@ export default function SeatingCanvas({
               撤销上一条
             </button>
           )}
-          {/* 历史数据里叠在一起、肉眼分不清的重复连线，一键合并 */}
-          {mode === 'link' && duplicateCount > 0 && (
+          {/* 历史数据里叠在一起、肉眼分不清的重复连线，一键合并。不锁模式：任何模式下都该能清理 */}
+          {duplicateCount > 0 && (
             <button
               type="button"
               onClick={onDedupInteractions}
@@ -347,7 +348,7 @@ export default function SeatingCanvas({
             </button>
           )}
           {/* 清空是破坏性操作，按钮常驻但需要二次确认 */}
-          {mode === 'link' && interactions.length > 0 && (
+          {interactions.length > 0 && (
             <button
               type="button"
               onClick={() => setConfirmClear(confirmClear === 'interactions' ? null : 'interactions')}
@@ -360,7 +361,7 @@ export default function SeatingCanvas({
               清空连线
             </button>
           )}
-          {mode === 'role' && students.some((s) => s.role) && (
+          {students.some((s) => s.role) && (
             <button
               type="button"
               onClick={() => setConfirmClear(confirmClear === 'roles' ? null : 'roles')}

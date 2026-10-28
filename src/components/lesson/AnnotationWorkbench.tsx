@@ -21,6 +21,27 @@ import DimensionScores, { type DimMeta } from '@/components/annotation/Dimension
 
 type TabKey = 'seating' | 'events' | 'scores';
 
+/**
+ * 只删「完全一模一样」的重复连线（起点、终点、类型、是否双向全相同）。
+ * 历史数据里同一对座位之间会叠好几条箭头，按坐标完全重叠、肉眼看不出来，用户会以为「没点上」再点一次。
+ *
+ * 注意这里故意**不**按「同座位对」粗暴合并：同一对之间可能既有「观点分享」又有「提问求助」，
+ * 那是两个不同的标注，自动合并会丢掉用户的真实数据。要按座位对合并由用户点「合并重复」显式决定。
+ */
+function dedupExactEdges(edges: InteractionEdge[]): InteractionEdge[] {
+  const seen = new Set<string>();
+  const kept: InteractionEdge[] = [];
+  for (let i = edges.length - 1; i >= 0; i -= 1) {
+    const e = edges[i];
+    if (!e) continue;
+    const k = `${e.from_seat_id}>${e.to_seat_id}|${e.type}|${e.bidirectional ? 1 : 0}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    kept.unshift(e);
+  }
+  return kept;
+}
+
 const TABS: { key: TabKey; label: string; icon: React.ReactNode }[] = [
   { key: 'seating', label: '座位·角色·互动', icon: <Grid3x3 className="h-4 w-4" /> },
   { key: 'events', label: '事件打点', icon: <Flag className="h-4 w-4" /> },
@@ -53,45 +74,6 @@ export default function AnnotationWorkbench({
     return () => clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await annotationApi.get(lessonId);
-        if (cancelled) return;
-        if (res?.annotation?.payload) {
-          const p = res.annotation.payload as unknown as Partial<LessonAnnotation>;
-          const base = emptyAnnotation(dimensions.map((d) => d.code));
-          setData({
-            ...base,
-            ...p,
-            lesson_id: lessonId,
-            // 保证数组字段存在
-            role_timeline: p.role_timeline ?? [],
-            interactions: p.interactions ?? [],
-            events: p.events ?? [],
-            phases: p.phases ?? [],
-            observer_sheet: p.observer_sheet ?? [],
-            dimension_scores: p.dimension_scores?.length
-              ? p.dimension_scores
-              : base.dimension_scores,
-          });
-          setVersion(res.annotation.version);
-        } else {
-          setData({ ...emptyAnnotation(dimensions.map((d) => d.code)), lesson_id: lessonId });
-        }
-      } catch (e) {
-        if (e instanceof ApiError && e.status === 401) onUnauthorized();
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lessonId]);
-
   const persist = useCallback(
     async (snapshot: LessonAnnotation) => {
       setSaveState('saving');
@@ -115,6 +97,55 @@ export default function AnnotationWorkbench({
     },
     [lessonId, onUnauthorized],
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await annotationApi.get(lessonId);
+        if (cancelled) return;
+        if (res?.annotation?.payload) {
+          const p = res.annotation.payload as unknown as Partial<LessonAnnotation>;
+          const base = emptyAnnotation(dimensions.map((d) => d.code));
+          const rawEdges = p.interactions ?? [];
+          // 历史数据里完全重复的连线自动收敛，用户不必手动点「合并重复」。
+          // 幂等：没有重复时 keptEdges 与 rawEdges 一致，不触发额外保存。
+          const keptEdges = dedupExactEdges(rawEdges);
+          const dropped = rawEdges.length - keptEdges.length;
+          const next: LessonAnnotation = {
+            ...base,
+            ...p,
+            lesson_id: lessonId,
+            // 保证数组字段存在
+            role_timeline: p.role_timeline ?? [],
+            interactions: keptEdges,
+            events: p.events ?? [],
+            phases: p.phases ?? [],
+            observer_sheet: p.observer_sheet ?? [],
+            dimension_scores: p.dimension_scores?.length
+              ? p.dimension_scores
+              : base.dimension_scores,
+          };
+          setData(next);
+          setVersion(res.annotation.version);
+          if (dropped > 0) {
+            // 收敛结果立即回存，避免下次进来又看到重复
+            void persist(next);
+          }
+        } else {
+          setData({ ...emptyAnnotation(dimensions.map((d) => d.code)), lesson_id: lessonId });
+        }
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 401) onUnauthorized();
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lessonId]);
 
   // 变更后防抖自动保存（首次加载不触发）
   const mutate = useCallback(
