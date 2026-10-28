@@ -70,6 +70,12 @@ interface Props {
   onRenameSeat: (seatId: string, patch: { student_no?: string; name?: string }) => void;
   onAddInteraction: (draft: InteractionDraft) => void;
   onRemoveInteraction: (id: string) => void;
+  /** 一键清空全部互动连线（带确认） */
+  onClearInteractions: () => void;
+  /** 一键清空全部角色标记，座位姓名/编号保留 */
+  onClearRoles: () => void;
+  /** 合并已存在的重复连线（同向同座位对只留最后一条），用于清理历史遗留数据 */
+  onDedupInteractions: () => void;
 }
 
 function seatCenter(s: SeatStudent) {
@@ -139,6 +145,9 @@ export default function SeatingCanvas({
   onRenameSeat,
   onAddInteraction,
   onRemoveInteraction,
+  onClearInteractions,
+  onClearRoles,
+  onDedupInteractions,
 }: Props) {
   const [mode, setMode] = useState<Mode>('role');
   // 小组围坐几何的回显值（夹取口径与 factory 一致）：历史数据没有这两个字段，回落旧行为
@@ -162,7 +171,26 @@ export default function SeatingCanvas({
   const [renameValue, setRenameValue] = useState('');
   const [edgeType, setEdgeType] = useState<InteractionType>('share');
   const [bidirectional, setBidirectional] = useState(false);
+  // 清空是不可逆动作，但标注工作台里没有弹窗组件、window.confirm 在部分安卓 WebView（如 Via）不弹，
+  // 所以改成工具条下方的就地二次确认：先点「清空…」再点「确认清空」。
+  const [confirmClear, setConfirmClear] = useState<'interactions' | 'roles' | null>(null);
+  // 刚连过线的提示：用来说明「重复连线会覆盖而不是叠加」，消掉「没点上？再点一次」的错觉
+  const [linkNotice, setLinkNotice] = useState<string | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  // 同向同座位对出现多次即为重复连线（历史数据里会有一模一样的两条箭头叠在一起看不出来）
+  const duplicateCount = useMemo(() => {
+    const seen = new Map<string, number>();
+    interactions.forEach((e) => {
+      const k = `${e.from_seat_id}>${e.to_seat_id}`;
+      seen.set(k, (seen.get(k) ?? 0) + 1);
+    });
+    let extra = 0;
+    seen.forEach((n) => {
+      if (n > 1) extra += n - 1;
+    });
+    return extra;
+  }, [interactions]);
 
   function openRename(s: SeatStudent) {
     setRenameTarget(s);
@@ -201,10 +229,14 @@ export default function SeatingCanvas({
     } else {
       if (!linkFrom) {
         setLinkFrom(s.seat_id);
+        setLinkNotice(null);
       } else if (linkFrom === s.seat_id) {
         setLinkFrom(null);
       } else {
+        const dup = interactions.some((e) => e.from_seat_id === linkFrom && e.to_seat_id === s.seat_id);
         onAddInteraction({ from_seat_id: linkFrom, to_seat_id: s.seat_id, bidirectional, type: edgeType });
+        // 重复连线不会叠成两条：已把那条改成当前类型，明确告知，避免用户以为没连上又点一次
+        setLinkNotice(dup ? '这一对之间已有连线，已按当前类型更新，不会重复叠加。' : null);
         setLinkFrom(null);
       }
     }
@@ -288,6 +320,7 @@ export default function SeatingCanvas({
             <span className="text-xs text-muted-foreground/80">
               {linkFrom ? '请点击目标座位（再点起点取消）' : '依次点击两个座位连线'}
             </span>
+            {linkNotice && <span className="text-xs text-amber-600">{linkNotice}</span>}
           </div>
         )}
 
@@ -300,6 +333,44 @@ export default function SeatingCanvas({
               title="撤销最近一条连线"
             >
               撤销上一条
+            </button>
+          )}
+          {/* 历史数据里叠在一起、肉眼分不清的重复连线，一键合并 */}
+          {mode === 'link' && duplicateCount > 0 && (
+            <button
+              type="button"
+              onClick={onDedupInteractions}
+              className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-700 hover:bg-amber-100"
+              title={`有 ${duplicateCount} 条连线重复叠在一起，合并后每对座位只保留一条`}
+            >
+              合并重复 {duplicateCount} 条
+            </button>
+          )}
+          {/* 清空是破坏性操作，按钮常驻但需要二次确认 */}
+          {mode === 'link' && interactions.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setConfirmClear(confirmClear === 'interactions' ? null : 'interactions')}
+              className={`rounded-md border px-2 py-1 text-xs ${
+                confirmClear === 'interactions'
+                  ? 'border-destructive bg-destructive/10 text-destructive'
+                  : 'border-border bg-card text-muted-foreground hover:bg-muted'
+              }`}
+            >
+              清空连线
+            </button>
+          )}
+          {mode === 'role' && students.some((s) => s.role) && (
+            <button
+              type="button"
+              onClick={() => setConfirmClear(confirmClear === 'roles' ? null : 'roles')}
+              className={`rounded-md border px-2 py-1 text-xs ${
+                confirmClear === 'roles'
+                  ? 'border-destructive bg-destructive/10 text-destructive'
+                  : 'border-border bg-card text-muted-foreground hover:bg-muted'
+              }`}
+            >
+              清空角色
             </button>
           )}
           {layoutOptions.map((t) => (
@@ -316,6 +387,37 @@ export default function SeatingCanvas({
           ))}
         </div>
       </div>
+
+      {/* 就地二次确认：不弹窗，避免安卓 WebView（Via 等）不弹原生 confirm 而卡死 */}
+      {confirmClear && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs">
+          <span className="text-destructive">
+            {confirmClear === 'interactions'
+              ? `确认清空全部 ${interactions.length} 条互动连线？清空后需重新标注。`
+              : `确认清空全部 ${students.filter((s) => s.role).length} 个座位的角色标记？座位姓名/编号会保留。`}
+          </span>
+          <span className="ml-auto flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                if (confirmClear === 'interactions') onClearInteractions();
+                else onClearRoles();
+                setConfirmClear(null);
+              }}
+              className="rounded-md border border-destructive bg-destructive px-2.5 py-1 text-xs font-medium text-destructive-foreground"
+            >
+              确认清空
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmClear(null)}
+              className="rounded-md border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground"
+            >
+              再想想
+            </button>
+          </span>
+        </div>
+      )}
 
       {/* 座位数配置：三种布局都能按实际教室调，人数不再被布局写死 */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-border/80 bg-muted/30 px-3 py-2 text-xs">
