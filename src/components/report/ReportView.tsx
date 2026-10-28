@@ -343,7 +343,14 @@ export default function ReportView({
           <Button variant="outline" size="sm" onClick={handlePrint} title="调起系统打印，可另存为 PDF">
             <Printer className="mr-2 h-4 w-4" /> 打印 / 存 PDF
           </Button>
-          <Button variant="outline" size="sm" onClick={handleDownloadHtml} title="下载独立报告文件，手机浏览器也可用">
+          {!offlineSample && (
+            <Button variant="outline" size="sm" asChild title="下载 Word 版完整报告，可在 Word 中继续编辑，也可在 Word 里另存为 PDF">
+              <a href={`/api/lessons/${lessonId}/report/export`} download>
+                <FileText className="mr-2 h-4 w-4" /> 下载 Word
+              </a>
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={handleDownloadHtml} title="下载独立网页报告，打开后可用浏览器「另存为 PDF」；折叠内容可能缺失，完整版请用「下载 Word」">
             <FileDown className="mr-2 h-4 w-4" /> 下载报告
           </Button>
           <Button variant="outline" size="sm" asChild title="一页 A4 速读，可直接打印或放进档案袋">
