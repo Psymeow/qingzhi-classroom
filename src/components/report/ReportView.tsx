@@ -26,7 +26,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import { annotationApi, ApiError, type StoredReport } from '@/lib/api/client';
+import { annotationApi, apiDownload, ApiError, type StoredReport } from '@/lib/api/client';
 import { SOURCE_LABEL } from '@/lib/evaluation/types';
 import type { DimMeta } from '@/components/annotation/DimensionScores';
 import type {
@@ -167,6 +167,7 @@ export default function ReportView({
   const [ann, setAnn] = useState<AnnPayload | null>(initialAnnotation ?? null);
   const [loadingAnn, setLoadingAnn] = useState(!initialAnnotation);
   const [exportMsg, setExportMsg] = useState<string | null>(null);
+  const [exportingDocx, setExportingDocx] = useState(false);
   const reportRef = useRef<HTMLDivElement | null>(null);
 
   const exportFileName = useMemo(() => {
@@ -174,6 +175,62 @@ export default function ReportView({
     const date = new Date(report.result.generated_at).toISOString().slice(0, 10);
     return `${title}_${date}`;
   }, [lessonTitle, report.result.generated_at]);
+
+  /**
+   * 下载 Word（服务端生成）。
+   *
+   * 这里必须用 fetch 而不是 <a href download> 直链：本项目鉴权走 x-session 请求头，
+   * 而 <a> 导航是浏览器原生请求，带不上自定义头，服务端必然回 401 JSON——
+   * 浏览器却会把这次导航当作下载落盘，于是用户拿到一个「export.json」。
+   * 改为 fetch 后先验状态与内容类型，失败时只提示、不存盘。
+   */
+  const handleDownloadDocx = async () => {
+    setExportingDocx(true);
+    setExportMsg(null);
+    try {
+      const path = `/api/lessons/${lessonId}/report/export`;
+      const res = await apiDownload(path);
+      const type = res.headers.get('content-type') ?? '';
+
+      // 鉴权失败 / 无权限时后端返回的是 JSON 错误对象，绝不能当文件存下来
+      if (!res.ok || !type.includes('wordprocessingml')) {
+        const err = (await res.json().catch(() => null)) as { error?: string } | null;
+        setExportMsg(
+          res.status === 401
+            ? '导出需要登录，请刷新页面重新登录后再试。'
+            : `导出失败：${err?.error || `服务返回 ${res.status}`}`,
+        );
+        return;
+      }
+
+      const blob = await res.blob();
+      // 优先用服务端 Content-Disposition 里的中文文件名（RFC 5987）
+      const disp = res.headers.get('content-disposition') ?? '';
+      const starMatch = /filename\*=UTF-8''([^;]+)/i.exec(disp);
+      const plainMatch = /filename="?([^";]+)"?/i.exec(disp);
+      const name = starMatch
+        ? decodeURIComponent(starMatch[1])
+        : plainMatch?.[1] || `${exportFileName}.docx`;
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      setExportMsg('Word 报告已开始下载。');
+    } catch (e) {
+      setExportMsg(
+        e instanceof ApiError && e.status === 401
+          ? '导出需要登录，请刷新页面重新登录后再试。'
+          : '导出失败，请检查网络后重试。',
+      );
+    } finally {
+      setExportingDocx(false);
+    }
+  };
 
   /** 下载独立 HTML 报告：Via 等无打印框架的浏览器的稳定导出路径。 */
   const handleDownloadHtml = () => {
@@ -335,10 +392,19 @@ export default function ReportView({
             <Printer className="mr-2 h-4 w-4" /> 打印 / 存 PDF
           </Button>
           {!offlineSample && (
-            <Button variant="outline" size="sm" asChild title="下载 Word 版完整报告，可在 Word 中继续编辑，也可在 Word 里另存为 PDF">
-              <a href={`/api/lessons/${lessonId}/report/export`} download>
-                <FileText className="mr-2 h-4 w-4" /> 下载 Word
-              </a>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={exportingDocx}
+              onClick={() => void handleDownloadDocx()}
+              title="下载 Word 版完整报告，可在 Word 中继续编辑，也可在 Word 里另存为 PDF"
+            >
+              {exportingDocx ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <FileText className="mr-2 h-4 w-4" />
+              )}
+              {exportingDocx ? '生成中…' : '下载 Word'}
             </Button>
           )}
           <Button variant="outline" size="sm" onClick={handleDownloadHtml} title="下载独立网页报告，打开后可用浏览器「另存为 PDF」；折叠内容可能缺失，完整版请用「下载 Word」">

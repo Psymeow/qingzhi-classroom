@@ -91,6 +91,33 @@ async function sendRequest(
   return fetch(path, { ...init, headers, cache: 'no-store' });
 }
 
+/**
+ * 下载类请求：与 apiFetch 同一套取票逻辑（x-session + 401 补试），但返回**原始 Response**。
+ *
+ * 不能直接用 apiFetch——它恒定 res.json()，会把二进制文件读坏；
+ * 也不能不检查就存盘——后端鉴权失败时返回的是 JSON 错误，直接下载会得到一个 .json 文件，
+ * 用户看到「文件名 export.json、提示需要授权」却不知道发生了什么。
+ * 调用方必须先验 res.ok 与 content-type 再取 blob。
+ */
+export async function apiDownload(path: string): Promise<Response> {
+  let token = await getAccessToken();
+  if (!token) throw new ApiError('请先登录', 401);
+
+  const send = (t: string) =>
+    fetch(path, { method: 'GET', headers: { 'x-session': t }, cache: 'no-store' });
+
+  let res = await send(token);
+  // 会话刚刷新时可能先吃一次 401，取最新令牌补试一次
+  if (res.status === 401) {
+    const fresh = await getAccessToken();
+    if (fresh && fresh !== token) {
+      token = fresh;
+      res = await send(token);
+    }
+  }
+  return res;
+}
+
 export const api = {
   get: <T = unknown>(path: string) => apiFetch<T>(path, { method: 'GET' }),
   post: <T = unknown>(path: string, body?: unknown, init?: RequestInit) =>
