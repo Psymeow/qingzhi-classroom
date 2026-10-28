@@ -334,7 +334,8 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
 
   children.push(
     table(
-      [1800, 1600, 1800, 2800],
+      // 列宽按 3 列分配：两列分数窄、判读列宽（文字更长）
+      [3200, 2800, 4000],
       [
         [
           headCell('认知素养（高阶思维 D2）'),
