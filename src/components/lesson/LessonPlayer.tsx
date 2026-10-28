@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Film, Loader2, Volume2, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -54,7 +54,37 @@ export default function LessonPlayer({ lessonId }: { lessonId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeMedia, setActiveMedia] = useState<string | null>(null);
-  const [currentMs, setCurrentMs] = useState(0);
+  /**
+   * 播放位置只用来定位「当前是第几句」，本身不参与渲染。
+   *
+   * 之前把 currentTime 存进 state：`timeupdate` 每秒触发约 4 次，整份 268 段的字幕列表
+   * 就跟着每秒全量 reconcile 四遍，播放时主线程被吃掉，页面点哪儿都发闷。
+   * 现在把毫秒放进 ref，只在**跨句**时才 setState 一次，字幕列表的重绘频率从 4Hz 降到约 0.25Hz。
+   */
+  const currentMsRef = useRef(0);
+  const currentSegRef = useRef(-1);
+  const [currentSeg, setCurrentSeg] = useState(-1);
+
+  const syncPosition = useCallback((ms: number) => {
+    currentMsRef.current = ms;
+    const segs = segmentsRef.current;
+    let ans = -1;
+    let lo = 0;
+    let hi = segs.length - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (segs[mid].s <= ms) {
+        ans = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    if (ans !== currentSegRef.current) {
+      currentSegRef.current = ans;
+      setCurrentSeg(ans);
+    }
+  }, []);
   const [mediaError, setMediaError] = useState<{ code: number; hint: string } | null>(null);
 
   /** 本次播放地址是否已自动重签重试过；防止坏文件导致无限重试 */
@@ -65,6 +95,8 @@ export default function LessonPlayer({ lessonId }: { lessonId: string }) {
   const scrollLockRef = useRef(false);
   const programmaticRef = useRef(false);
   const lockTimerRef = useRef<number | null>(null);
+  /** 字幕段落的 ref 镜像：定位计算在 timeupdate 回调里同步跑，不能等 state 更新后再读 */
+  const segmentsRef = useRef<TimelineSegment[]>([]);
 
   const applyPayload = useCallback((payload: TimelinePayload) => {
     setData(payload);
@@ -106,10 +138,10 @@ export default function LessonPlayer({ lessonId }: { lessonId: string }) {
     // 同一位置只补播放：不必要的 currentTime 赋值会触发 timeupdate 抖动，字幕跟着跳
     if (Math.abs(el.currentTime - sec) > 0.05) el.currentTime = sec;
     if (autoplay) void el.play().catch(() => {});
-    setCurrentMs(ms);
+    syncPosition(ms);
     // 显式跳转（点字幕/点证据）不算用户滚动，恢复自动跟随
     scrollLockRef.current = false;
-  }, []);
+  }, [syncPosition]);
 
   // 接收外部跳转请求
   useEffect(() => {
@@ -124,8 +156,9 @@ export default function LessonPlayer({ lessonId }: { lessonId: string }) {
 
   const onTimeUpdate = useCallback(() => {
     const el = mediaRef.current;
-    if (el) setCurrentMs(el.currentTime * 1000);
-  }, []);
+    // 播放中每秒触发约 4 次；只有跨到另一句才会 setState，其余更新都停在 ref 里
+    if (el) syncPosition(el.currentTime * 1000);
+  }, [syncPosition]);
 
   /**
    * 播放失败兜底。
@@ -186,24 +219,14 @@ export default function LessonPlayer({ lessonId }: { lessonId: string }) {
   }, [loadTimeline]);
 
   const segments = data?.segments ?? [];
+  segmentsRef.current = segments;
 
-  /** 当前播放位置落在第几段（二分；段起点已按时间排序） */
-  const currentSeg = useMemo(() => {
-    if (!segments.length) return -1;
-    let lo = 0;
-    let hi = segments.length - 1;
-    let ans = -1;
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      if (segments[mid].s <= currentMs) {
-        ans = mid;
-        lo = mid + 1;
-      } else {
-        hi = mid - 1;
-      }
-    }
-    return ans;
-  }, [currentMs, segments]);
+  // 换片源/重新加载后重算当前句，避免上一个媒体的高亮残留在不存在的段号上
+  useEffect(() => {
+    currentSegRef.current = -1;
+    currentMsRef.current = 0;
+    setCurrentSeg(-1);
+  }, [activeMedia]);
 
   useEffect(() => {
     if (currentSeg < 0 || scrollLockRef.current) return;
@@ -361,8 +384,8 @@ export default function LessonPlayer({ lessonId }: { lessonId: string }) {
                   variant={on ? 'secondary' : 'ghost'}
                   className="h-7 max-w-[200px] truncate text-[12px]"
                   onClick={() => {
+                    // 位置重置交给上面的 [activeMedia] effect，避免这里重复 setState
                     setActiveMedia(mediaSrc(m));
-                    setCurrentMs(0);
                   }}
                   title={m.file_name ?? undefined}
                 >

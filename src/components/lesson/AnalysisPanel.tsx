@@ -45,11 +45,13 @@ interface Props {
   runner: AnalysisRunner;
 }
 
+/** 与 `DataSource` 保持一致的五路来源；此前漏掉 `lesson_plan`，导致教案明明已评分却不在齐备性面板显示。 */
 const SOURCE_KEYS: DataSource[] = [
   'av_transcript',
   'manual_annotation',
   'observer_note',
   'task_sheet',
+  'lesson_plan',
 ];
 
 const CN_NUM = ['一', '二', '三', '四', '五', '六'];
@@ -107,6 +109,7 @@ export default function AnalysisPanel({ lessonId, dimensions, onUnauthorized, ru
   return (
     <div className="space-y-4">
       <LessonTypeBar lessonId={lessonId} onUnauthorized={onUnauthorized} onChange={runner.setLessonType} />
+
 
       {aiMeta && (
         <div
