@@ -98,6 +98,18 @@ export async function uploadObjectStream(
 }
 
 /**
+ * 签名地址短缓存。
+ *
+ * 每次签名 SDK 都要向 sign-url 服务发一次往返（实测约占单次取流耗时的四成），
+ * 而播放时浏览器是按 2MB 一小段连续要的，一秒内会来好几次。
+ * 签名有效期有 7200s，缓存 600s 完全安全；过期后自然重签，用户无感。
+ * 进程内 Map，容量封顶防止长期运行下无限增长。
+ */
+const SIGN_CACHE_TTL_MS = 600 * 1000;
+const SIGN_CACHE_MAX = 200;
+const signCache = new Map<string, { url: string; expiresAt: number }>();
+
+/**
  * 为已持久化的对象 key 生成临时签名访问 URL。
  *
  * 签名本身是本地计算，但 SDK 首次调用要先取一次存储凭证，这一步偶发瞬时失败，
@@ -106,7 +118,7 @@ export async function uploadObjectStream(
  * 真持续失败仍然抛出，由上层降级成明确提示，不吞错误。
  *
  * @param bucket 可选，显式指定存储桶名。不传则用运行时默认桶（COZE_BUCKET_NAME）。
- *   历史素材留在旧桶时，需要由调用方显式指定，否则签出的地址指向空的新桶。
+ *   传了 bucket 时不做缓存：调用方在做非常规桶的探测，缓存会污染默认路径。
  */
 export async function signObjectUrl(
   key: string,
@@ -116,14 +128,31 @@ export async function signObjectUrl(
   const storage = getStorage();
   // 历史素材的 key 已在生产桶里换了名字，签之前先映射回实际对象；新上传的 key 原样通过。
   const targetKey = remapLegacyKey(key);
+  const cacheKey = bucket ? '' : `${targetKey}|${expireSeconds}`;
+  if (cacheKey) {
+    const hit = signCache.get(cacheKey);
+    if (hit && hit.expiresAt > Date.now()) return hit.url;
+  }
   let lastError: unknown = null;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      return await storage.generatePresignedUrl({
+      const url = await storage.generatePresignedUrl({
         key: targetKey,
         expireTime: expireSeconds,
         ...(bucket ? { bucket } : {}),
       });
+      if (cacheKey) {
+        // 缓存寿命按「签名剩余有效期」与 TTL 取小，绝不给出已过期或快过期的地址
+        const safeTtl = Math.min(SIGN_CACHE_TTL_MS, Math.max(0, (expireSeconds - 60) * 1000));
+        if (safeTtl > 0) {
+          if (signCache.size >= SIGN_CACHE_MAX) {
+            const oldest = signCache.keys().next().value;
+            if (oldest !== undefined) signCache.delete(oldest);
+          }
+          signCache.set(cacheKey, { url, expiresAt: Date.now() + safeTtl });
+        }
+      }
+      return url;
     } catch (e) {
       lastError = e;
       if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 200 * (attempt + 1)));
