@@ -203,21 +203,40 @@ function normalizeWidths(weights: number[]): number[] {
  */
 function table(weights: number[], rows: TableCell[][], opts: { header?: boolean } = {}): Table {
   const header = opts.header !== false;
-  const trs = rows.map(
-    (r, i) =>
-      new TableRow({
-        children: r,
-        tableHeader: header && i === 0,
-      }),
-  );
+  const widths = normalizeWidths(weights);
   // FIXED + 显式 columnWidths：每列表头与数据严格同宽。
   // 之前是 AUTOFIT 且不传列宽（首参 _widths 从未被使用），Word 逐行按内容猜宽度——
   // 「编号」列只有 1/2/3 却分到大量空间，长文字的「要点」列被挤压，表头与数据行的
   // 分列结果不一致，看起来就是表格错位、渲染坏了。
+  //
+  // 但只给 table 级 columnWidths 仍不够：那只是 w:tblGrid，Word 对没有 w:tcW 的
+  // 单元格仍会按内容重算——表头「编号」两字窄、「要点」两字宽，于是表头行被压成
+  // 一列独大、其余挤扁竖排。所以这里把 widths 按列序注入到每一个 TableCell。
+  // 注入在本函数内完成，表头与数据走的是同一份 widths 的同一个下标，天然对齐。
+  const trs = rows.map((row, rowIdx) => {
+    let col = 0;
+    const cells = row.map((cell) => {
+      const span = Math.max(1, cell.options.columnSpan ?? 1);
+      // 合并列占多格时宽度累加，保证整行仍然铺满版心
+      const w = widths.slice(col, col + span).reduce((a, b) => a + b, 0);
+      col += span;
+      // docx 的 properties 在类型上标为 private，但运行时是公开实例，且 setColumnWidth
+      // 是官方暴露的列宽入口（会正确产出 w:tcW）。这里断言，避免为此复制一遍 TableCell。
+      (
+        cell as unknown as {
+          properties: {
+            setColumnWidth: (size: number, type: (typeof WidthType)[keyof typeof WidthType]) => void;
+          };
+        }
+      ).properties.setColumnWidth(w, WidthType.DXA);
+      return cell;
+    });
+    return new TableRow({ children: cells, tableHeader: header && rowIdx === 0 });
+  });
   return new Table({
     width: { size: CONTENT_WIDTH_TWIPS, type: WidthType.DXA },
     layout: TableLayoutType.FIXED,
-    columnWidths: normalizeWidths(weights),
+    columnWidths: widths,
     rows: trs,
   });
 }
@@ -556,7 +575,7 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
   const events = [...(input.events ?? [])].sort((a, b) => (a.time_sec ?? 0) - (b.time_sec ?? 0));
   if (events.length) {
     children.push(h3(`关键事件打点（${events.length}）`));
-    const evRows: TableCell[][] = [[headCell('时间', 1400, AlignmentType.CENTER), headCell('类别', 1800, AlignmentType.CENTER), headCell('说明', 6800)]];
+    const evRows: TableCell[][] = [[headCell('时间', undefined, AlignmentType.CENTER), headCell('类别', undefined, AlignmentType.CENTER), headCell('说明')]];
     events.forEach((e) => {
       const mm = Math.floor((e.time_sec ?? 0) / 60).toString().padStart(2, '0');
       const ss = ((e.time_sec ?? 0) % 60).toString().padStart(2, '0');
@@ -706,7 +725,7 @@ function renderDimension(
   // 二级指标表
   const inds = d.indicators ?? [];
   if (inds.length) {
-    const rows: TableCell[][] = [[headCell('二级指标'), headCell('得分', 1800, AlignmentType.CENTER), headCell('状态', 2200, AlignmentType.CENTER)]];
+    const rows: TableCell[][] = [[headCell('二级指标'), headCell('得分', undefined, AlignmentType.CENTER), headCell('状态', undefined, AlignmentType.CENTER)]];
     inds.forEach((ind) => {
       rows.push([
         bodyCell(indicatorName(ind.indicator_code, ind.name)),
@@ -747,7 +766,7 @@ function renderViewpoint(vp: LessonTypeViewpointResult): (Paragraph | Table)[] {
   );
 
   const scored = vp.points.filter((x) => x.score !== null).length;
-  const rows: TableCell[][] = [[headCell('编号', 800, AlignmentType.CENTER), headCell('要点'), headCell('得分', 1100, AlignmentType.CENTER), headCell('等级', 1500, AlignmentType.CENTER)]];
+  const rows: TableCell[][] = [[headCell('编号', undefined, AlignmentType.CENTER), headCell('要点'), headCell('得分', undefined, AlignmentType.CENTER), headCell('等级', undefined, AlignmentType.CENTER)]];
   vp.points.forEach((pt) => {
     rows.push([
       bodyCell(String(pt.no), { align: AlignmentType.CENTER, color: MUTED }),
@@ -756,7 +775,9 @@ function renderViewpoint(vp: LessonTypeViewpointResult): (Paragraph | Table)[] {
       bodyCell(pt.level_label ?? '—', { color: levelColor(pt.level_label), align: AlignmentType.CENTER }),
     ]);
   });
-  out.push(table([800, 5600, 1100, 1500], rows));
+  // 编号列只有 1/2/3，权重给足即可——但不能太低，太低会被归一化压到 900 以下，
+  // 中文表头「编号」两个字会被挤成竖排。950/9100 ≈ 1034 twips，约容 4 个汉字。
+  out.push(table([950, 5550, 1100, 1500], rows));
 
   // 有理有据：只列有理由或有证据的要点，避免整表冗长
   const explained = vp.points.filter((x) => x.reason || (x.evidences?.length ?? 0) > 0);
@@ -802,7 +823,7 @@ function renderEssenceDomain(
     }),
   );
 
-  const rows: TableCell[][] = [[headCell('二级指标'), headCell('类别'), headCell('均分', 1400, AlignmentType.CENTER)]];
+  const rows: TableCell[][] = [[headCell('二级指标'), headCell('类别'), headCell('均分', undefined, AlignmentType.CENTER)]];
   domain.indicators.forEach((ind) => {
     rows.push([
       bodyCell(ind.name || ind.code),
