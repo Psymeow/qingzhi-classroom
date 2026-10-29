@@ -312,13 +312,20 @@ function bandLabel(std: RubricStandard, dimCode: string, score: number | null) {
 }
 
 /** 0-10 分的通用五档标签（课型要点/视角使用） */
+/**
+ * 通用五档词（V1.33 发展性口径）。
+ * 「待提升」→「可精进」、「需重点改进」→「起步阶段」：不抬高任何分数与阈值，
+ * 只把面向教师的措辞从判定式改为描述式，避免读完产生挫败感。
+ *
+ * 注意：旧报告里落库的 level_label 仍是旧词，展示层的配色判断必须新旧双向兼容。
+ */
 export function bandLabel10(score: number | null | undefined): string | null {
   if (score === null || score === undefined) return null;
   if (score >= 8.1) return "优秀";
   if (score >= 6.1) return "良好";
   if (score >= 4.1) return "中等";
-  if (score >= 2.1) return "待提升";
-  return "需重点改进";
+  if (score >= 2.1) return "可精进";
+  return "起步阶段";
 }
 
 /**
@@ -661,6 +668,6 @@ function bandLevelOf100(score100: number): string {
   if (score100 >= 85) return "优秀";
   if (score100 >= 70) return "良好";
   if (score100 >= 55) return "中等";
-  if (score100 >= 35) return "待提升";
-  return "需重点改进";
+  if (score100 >= 35) return "可精进";
+  return "起步阶段";
 }

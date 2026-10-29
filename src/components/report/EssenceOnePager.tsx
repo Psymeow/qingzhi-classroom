@@ -61,25 +61,25 @@ const STATE_META: Record<
 > = {
   strong: {
     label: '情智俱佳',
-    desc: '思维发展与情感培育都处在良好以上，两个向度都立住了。',
+    desc: '两个向度都处在良好以上，是本课最扎实的地方。',
     badge: 'bg-emerald-100 text-emerald-700 border-emerald-200',
     ring: 'from-emerald-50/80',
   },
   mid: {
     label: '情智稳步',
-    desc: '两个向度都处在中段，是本课下一步可以抬升的空间所在。',
+    desc: '两个向度都已站上中段，向上抬升的空间清晰可见。',
     badge: 'bg-sky-100 text-sky-700 border-sky-200',
     ring: 'from-sky-50/80',
   },
   weak: {
-    label: '情智待启',
-    desc: '两个向度都还有距离，优先从「一个能让学生想说话的开放问题」重启。',
+    label: '情智起步',
+    desc: '两个向度都已起步，下一轮从「一个能让学生想说话的开放问题」推进。',
     badge: 'bg-amber-100 text-amber-700 border-amber-200',
     ring: 'from-amber-50/80',
   },
   insufficient: {
-    label: '材料不足',
-    desc: '缺少课堂转写或观察点材料，两个向度无法判读；补齐后可重新生成。',
+    label: '材料待补',
+    desc: '还差课堂转写或观察点材料，补齐后可以重新生成判读。',
     badge: 'bg-muted text-muted-foreground border-border',
     ring: 'from-muted/60',
   },

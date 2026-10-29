@@ -102,6 +102,7 @@ export async function generateDimensionInterpretations(
           `你是${subjectLabel(standard.subject)}教研专家，熟悉「${standard.name}」评价模型。`,
           '你会收到一份课堂量化报告的五维摘要，需要为每个维度写四段面向授课教师的解读。',
           '要求：结论必须严格建立在给定数据之上，不编造材料、不夸大；具体、可执行，不使用 Markdown 标记与编号前缀。',
+          '评价采用发展性口径：先陈述已经达成的表现，再说明下一步可以拓展的方向；避免使用「薄弱」「偏低」「不理想」「较差」「不足」等判定性词语。',
         ].join('\n'),
       },
       {

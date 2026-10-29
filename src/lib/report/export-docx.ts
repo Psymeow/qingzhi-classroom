@@ -255,7 +255,9 @@ function levelColor(level: string | null): string {
   if (level.includes('优秀')) return '059669';
   if (level.includes('良好')) return '65A30D';
   if (level.includes('中等')) return 'D97706';
-  if (level.includes('待提升')) return 'EA580C';
+  // 旧报告落库的仍是「待提升」「需重点改进」，新旧词一并匹配
+  if (level.includes('可精进') || level.includes('待提升')) return 'EA580C';
+  if (level.includes('起步') || level.includes('需重点改进')) return 'E11D48';
   if (level.includes('欠')) return 'E11D48';
   return INK;
 }
@@ -379,13 +381,14 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
   // 平均既不代表设计水平也不代表实施水平，还会把「设计好但落地打折」的落差信号抹掉。
   // D1/D4 的完整展示仍在下方五维表。
 
-  // 判读只看两个向度的共同水平（短板），不比较高下
+  // 判读只看两个向度的共同水平（短板），不比较高下。
+  // 与页面 EssenceOnePager.STATE_META 保持同一套 label/desc 口径（V1.33 发展性表述）
   const stateLabel = (() => {
-    if (cog100 === null || aff100 === null) return '材料不足';
+    if (cog100 === null || aff100 === null) return '材料待补';
     const floor = Math.min(cog100, aff100);
     if (floor >= 70) return '情智俱佳';
     if (floor >= 60) return '情智稳步';
-    return '情智待启';
+    return '情智起步';
   })();
 
   children.push(
@@ -725,12 +728,14 @@ function renderDimension(
   // 二级指标表
   const inds = d.indicators ?? [];
   if (inds.length) {
-    const rows: TableCell[][] = [[headCell('二级指标'), headCell('得分', undefined, AlignmentType.CENTER), headCell('状态', undefined, AlignmentType.CENTER)]];
+    const rows: TableCell[][] = [[headCell('二级指标'), headCell('得分', undefined, AlignmentType.CENTER), headCell('评分状态', undefined, AlignmentType.CENTER)]];
     inds.forEach((ind) => {
       rows.push([
         bodyCell(indicatorName(ind.indicator_code, ind.name)),
         bodyCell(fmt(ind.score), { bold: true, color: scoreHex(ind.score), align: AlignmentType.CENTER }),
-        bodyCell(ind.score === null ? '无评分依据' : ind.need_review ? '待复核' : '正常', {
+        // 「评分状态」说的是这份分数的处理状态，不是课堂表现好坏：
+        // 正常→已评估、待复核→待复核、无评分依据→材料待补，避免教师把「正常」读成「表现正常」
+        bodyCell(ind.score === null ? '材料待补' : ind.need_review ? '待复核' : '已评估', {
           color: ind.score === null ? MUTED : ind.need_review ? 'B45309' : '047857',
           align: AlignmentType.CENTER,
         }),

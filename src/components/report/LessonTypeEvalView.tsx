@@ -16,20 +16,14 @@ function pointColor(score: number | null): string {
 }
 
 function levelClass(label: string | null): string {
-  switch (label) {
-    case '优秀':
-      return 'border-emerald-300 text-emerald-700';
-    case '良好':
-      return 'border-lime-300 text-lime-700';
-    case '中等':
-      return 'border-amber-300 text-amber-700';
-    case '待提升':
-      return 'border-orange-300 text-orange-700';
-    case '需重点改进':
-      return 'border-red-300 text-red-700';
-    default:
-      return 'border-border text-muted-foreground';
-  }
+  // 旧报告落库的仍是「待提升」「需重点改进」，新旧词一并匹配，避免旧数据渲染退化
+  if (!label) return 'border-border text-muted-foreground';
+  if (label === '优秀') return 'border-emerald-300 text-emerald-700';
+  if (label === '良好') return 'border-lime-300 text-lime-700';
+  if (label === '中等') return 'border-amber-300 text-amber-700';
+  if (label === '可精进' || label === '待提升') return 'border-orange-300 text-orange-700';
+  if (label === '起步阶段' || label === '需重点改进') return 'border-red-300 text-red-700';
+  return 'border-border text-muted-foreground';
 }
 
 export default function LessonTypeEvalView({

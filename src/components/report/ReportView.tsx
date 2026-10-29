@@ -147,10 +147,11 @@ interface AnnPayload {
 
 function levelColorClass(level: string | null): string {
   if (!level) return 'bg-muted text-muted-foreground';
+  // 旧报告落库的仍是「待提升」「需重点改进」，新旧词一并匹配，避免旧数据渲染退化
   if (level === '优秀') return 'bg-emerald-100 text-emerald-700';
   if (level === '良好') return 'bg-lime-100 text-lime-700';
   if (level === '中等') return 'bg-amber-100 text-amber-700';
-  if (level === '待提升') return 'bg-orange-100 text-orange-700';
+  if (level === '可精进' || level === '待提升') return 'bg-orange-100 text-orange-700';
   return 'bg-red-100 text-red-700';
 }
 
@@ -459,7 +460,7 @@ export default function ReportView({
         n="1"
         id="sec-overview"
         title="一眼看这课"
-        hint="这一节回答「这节课整体什么形状、有没有哪条腿明显短」，三十秒读完，不必先看数字。"
+        hint="这一节回答「这节课整体什么形状、哪一维还有抬升空间」，三十秒读完，不必先看数字。"
         questions={[
           '认知与情感两侧，哪一侧更亮？',
           '五维里最短的那条腿是哪一维？',

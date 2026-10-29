@@ -8,20 +8,20 @@
 // 因此可以验算，不引入任何外部经验值。
 // ============================================================
 
-/** 档位边界：≥8.1 优秀 / ≥6.1 良好 / ≥4.1 中等 / ≥2.1 待提升 / <2.1 需重点改进 */
+/** 档位边界：≥8.1 优秀 / ≥6.1 良好 / ≥4.1 中等 / ≥2.1 可精进 / <2.1 起步阶段 */
 export const SCALE_BANDS: ReadonlyArray<{ min: number; label: string }> = [
   { min: 8.1, label: '优秀' },
   { min: 6.1, label: '良好' },
   { min: 4.1, label: '中等' },
-  { min: 2.1, label: '待提升' },
-  { min: 0, label: '需重点改进' },
+  { min: 2.1, label: '可精进' },
+  { min: 0, label: '起步阶段' },
 ];
 
 const TICKS = [0, 4.1, 6.1, 8.1, 10];
 
 /** 分数 → 档名（与引擎同一口径）。 */
 export function scaleBand(score: number): string {
-  return SCALE_BANDS.find((b) => score >= b.min)?.label ?? '需重点改进';
+  return SCALE_BANDS.find((b) => score >= b.min)?.label ?? '起步阶段';
 }
 
 /** 分数 → 紧邻的上一档（已在最高档时返回 undefined）。 */

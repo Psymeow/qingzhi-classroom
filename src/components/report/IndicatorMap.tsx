@@ -46,7 +46,7 @@ const LEGEND = [
   { label: '优秀', tone: 'border border-emerald-500/40 bg-emerald-500/15' },
   { label: '良好', tone: 'border border-sky-500/40 bg-sky-500/15' },
   { label: '中等', tone: 'border border-amber-500/40 bg-amber-500/15' },
-  { label: '待提升以下', tone: 'border border-rose-500/40 bg-rose-500/15' },
+  { label: '可精进及以下', tone: 'border border-rose-500/40 bg-rose-500/15' },
 ];
 
 export default function IndicatorMap({ results, meta, names, className = '' }: Props) {

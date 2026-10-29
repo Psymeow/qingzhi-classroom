@@ -32,8 +32,8 @@ function scoreBadge(v: number | null | undefined): string {
   if (v >= 8.1) return '优秀';
   if (v >= 6.1) return '良好';
   if (v >= 4.1) return '中等';
-  if (v >= 2.1) return '待提升';
-  return '需重点改进';
+  if (v >= 2.1) return '可精进';
+  return '起步阶段';
 }
 
 /** V1.9d：缺材料观察点需要补的材料名称，如「学生任务单」「人工观察表」 */
