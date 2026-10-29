@@ -424,7 +424,7 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
 
   /* ================= 第一章 五维拆开看 ================= */
   children.push(h1('一、五维拆开看'));
-  children.push(hint('每一维的分数都能用其下二级指标均值验算；标「待复核」的维度是来源冲突或对账缺口，不是分数算错了。'));
+  children.push(hint('这一节回答「五个维度各几分、这一维到底表现得怎么样、下一步怎么改」；标「待复核」的维度还需老师人工再确认一遍。'));
 
   // 材料依据
   const availSources = (Object.keys(SOURCE_LABEL) as Array<keyof typeof SOURCE_LABEL>).filter(
@@ -679,7 +679,7 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
 }
 
 /* ------------------------------------------------------------------ *
- * 维度块：得分 + 对账口径 + 二级指标表 + 维度级 AI 解读
+ * 维度块：得分 + 二级指标表 + 维度级 AI 解读
  * ------------------------------------------------------------------ */
 function renderDimension(
   d: DimensionResult,
@@ -702,19 +702,6 @@ function renderDimension(
       ],
     }),
   );
-
-  // 对账口径
-  const scoredInd = (d.indicators ?? []).filter((i) => i.score !== null).length;
-  const bits: string[] = [];
-  if (d.reconcile_method === 'indicator_aggregate') {
-    bits.push(`对账：${scoredInd} 项二级指标均值 = ${fmt(d.indicator_avg ?? d.score)}`);
-  } else if (d.reconcile_method === 'source_fusion') {
-    bits.push('该维度无二级指标，分数由多来源融合得出');
-  }
-  if (typeof d.reconcile_gap === 'number') {
-    bits.push(`多来源参考 ${fmt(d.source_fused)}，差 ${d.reconcile_gap.toFixed(1)}${d.need_review ? '（待复核）' : ''}`);
-  }
-  if (bits.length) out.push(p(t(bits.join('　·　'), { size: 19, color: MUTED })));
 
   // 二级指标表
   const inds = d.indicators ?? [];
@@ -815,19 +802,15 @@ function renderEssenceDomain(
     }),
   );
 
-  const rows: TableCell[][] = [[headCell('二级指标'), headCell('类别'), headCell('均分', 1400, AlignmentType.CENTER), headCell('两链差', 1400, AlignmentType.CENTER)]];
+  const rows: TableCell[][] = [[headCell('二级指标'), headCell('类别'), headCell('均分', 1400, AlignmentType.CENTER)]];
   domain.indicators.forEach((ind) => {
     rows.push([
       bodyCell(ind.name || ind.code),
       bodyCell(ind.category || '—', { color: MUTED }),
       bodyCell(fmt(ind.score), { bold: true, color: scoreHex(ind.score), align: AlignmentType.CENTER }),
-      bodyCell(ind.chain_gap === null || ind.chain_gap === undefined ? '—' : ind.chain_gap.toFixed(1), {
-        color: typeof ind.chain_gap === 'number' && ind.chain_gap > 1.5 ? 'B45309' : MUTED,
-        align: AlignmentType.CENTER,
-      }),
     ]);
   });
-  out.push(table([4200, 2400, 1400, 1400], rows));
+  out.push(table([5000, 2500, 1800], rows));
 
   // 观察点明细：只列有分或有说明的，缺失材料单独提示
   const missing = domain.indicators.flatMap((i) => i.points).filter((x) => x.missing_material);
