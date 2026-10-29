@@ -168,7 +168,40 @@ function cell(
 }
 
 /** 数据表：首行表头 + 斑马纹 */
-function table(_widths: number[], rows: TableCell[][], opts: { header?: boolean } = {}): Table {
+/**
+ * 版心宽度（DXA / twips）：docx 默认 A4 纵向 11906，减去本文件左右边距各 1000。
+ * 列宽全部按这个宽度按比例换算，保证表格占满版心且各列边界与表头严格对齐。
+ */
+const CONTENT_WIDTH_TWIPS = 11906 - 1000 - 1000;
+
+/**
+ * 把「相对权重」换算成 DXA 绝对列宽。
+ *
+ * 调用点传的是相对值（多数表总和 10000，个别 9000/9400），不能直接当绝对宽度用——
+ * 直接用会让表格宽度随总和浮动，且总和不等于版心时右侧留白。这里按比例归一到版心，
+ * 余数补到最大的一列上，使总和严格等于 CONTENT_WIDTH_TWIPS。
+ */
+function normalizeWidths(weights: number[]): number[] {
+  const total = weights.reduce((a, b) => a + b, 0);
+  if (total <= 0) {
+    const even = Math.floor(CONTENT_WIDTH_TWIPS / weights.length);
+    return weights.map(() => even);
+  }
+  const widths = weights.map((w) => Math.floor((w / total) * CONTENT_WIDTH_TWIPS));
+  let rest = CONTENT_WIDTH_TWIPS - widths.reduce((a, b) => a + b, 0);
+  // 归一化取整吃掉了余数，补给最宽的列（权重最大 = 文字列），避免误差落到窄列上
+  const widest = widths.indexOf(Math.max(...widths));
+  widths[widest] += rest;
+  rest = 0;
+  return widths;
+}
+
+/**
+ * @param weights 各列相对权重（不必归一化，函数内部按比例换算到版心宽度）。
+ *   长度必须等于该表的实际列数（含 columnSpan 合并后的列）。
+ * @param rows    表格行。表头行与每一条数据行共用同一套列宽——这是列边界对齐的关键。
+ */
+function table(weights: number[], rows: TableCell[][], opts: { header?: boolean } = {}): Table {
   const header = opts.header !== false;
   const trs = rows.map(
     (r, i) =>
@@ -177,10 +210,14 @@ function table(_widths: number[], rows: TableCell[][], opts: { header?: boolean 
         tableHeader: header && i === 0,
       }),
   );
-  // 宽度占满版心，列宽交给 Word 自动分配（固定列宽在窄列里会把中文挤成竖排）。
+  // FIXED + 显式 columnWidths：每列表头与数据严格同宽。
+  // 之前是 AUTOFIT 且不传列宽（首参 _widths 从未被使用），Word 逐行按内容猜宽度——
+  // 「编号」列只有 1/2/3 却分到大量空间，长文字的「要点」列被挤压，表头与数据行的
+  // 分列结果不一致，看起来就是表格错位、渲染坏了。
   return new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    layout: TableLayoutType.AUTOFIT,
+    width: { size: CONTENT_WIDTH_TWIPS, type: WidthType.DXA },
+    layout: TableLayoutType.FIXED,
+    columnWidths: normalizeWidths(weights),
     rows: trs,
   });
 }
