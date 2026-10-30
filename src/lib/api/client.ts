@@ -45,7 +45,7 @@ async function getAccessToken(attempt = 0): Promise<string | null> {
 }
 
 /** 统一请求：自动附加当前 access_token 到 x-session（不缓存 token）；会话恢复空窗下对 401 做有界重试 */
-export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
+export async function apiFetch<T = unknown>(path: string, init: ApiRequestInit = {}): Promise<T> {
   const isPublic = PUBLIC_PATHS.has(path);
   // 用户主动取消（AbortController）不参与任何重试，直接抛出。
   const aborted = () => init.signal?.aborted === true;
@@ -58,14 +58,15 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
   // 仅对 GET 等幂等读请求在「会话恢复空窗」下做一次补试；写请求不自动重试以免重复提交。
   const method = (init.method || 'GET').toUpperCase();
   const retryable = method === 'GET';
-  let res = await sendRequest(path, init, token);
+  const { timeoutMs, ...rest } = init;
+  let res = await sendRequest(path, rest, token, timeoutMs);
 
   if (res.status === 401 && retryable && !aborted()) {
     // 可能是首屏会话尚未恢复或 token 刚刷新：等待后取最新会话再试一次。
     const fresh = await getAccessToken();
     if (fresh && fresh !== token) {
       token = fresh;
-      res = await sendRequest(path, init, token);
+      res = await sendRequest(path, rest, token, timeoutMs);
     }
   }
 
@@ -78,17 +79,40 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
   return payload as T;
 }
 
+/**
+ * 把调用方的取消信号与本次超时信号合并：任一触发都中止请求。
+ * AbortSignal.any 在 Safari 17.4 / 部分安卓 WebView 里可能缺失，
+ * 缺失时退回手写 AbortController + 两个 abort 转接，行为一致。
+ */
+function mergeSignals(signals: Array<AbortSignal | undefined>): AbortSignal | undefined {
+  const list = signals.filter((s): s is AbortSignal => Boolean(s));
+  if (list.length === 0) return undefined;
+  if (list.length === 1) return list[0];
+  const anyFn = (AbortSignal as unknown as { any?: (s: AbortSignal[]) => AbortSignal }).any;
+  if (typeof anyFn === 'function') return anyFn(list);
+  const controller = new AbortController();
+  const relay = () => controller.abort((list.find((s) => s.aborted) as { reason?: unknown })?.reason);
+  list.forEach((s) => s.addEventListener('abort', relay, { once: true }));
+  if (list.some((s) => s.aborted)) relay();
+  return controller.signal;
+}
+
 async function sendRequest(
   path: string,
   init: RequestInit,
   token: string | null,
+  timeoutMs?: number,
 ): Promise<Response> {
   const headers = new Headers(init.headers);
   headers.set('Content-Type', 'application/json');
   if (token) headers.set('x-session', token);
   // 含用户数据的接口一律不做 HTTP 缓存：课例元信息等保存后立即 GET 会命中缓存旧值，
   // 表现为「保存成功但页面仍显示未填写」，真机走查已复现。显式 no-store 保证每次读都打到源站。
-  return fetch(path, { ...init, headers, cache: 'no-store' });
+  const signal = mergeSignals([
+    init.signal ?? undefined,
+    timeoutMs && timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined,
+  ]);
+  return fetch(path, { ...init, headers, cache: 'no-store', signal });
 }
 
 /**
@@ -118,9 +142,18 @@ export async function apiDownload(path: string): Promise<Response> {
   return res;
 }
 
+/**
+ * RequestInit 扩展：额外支持本次请求的超时（毫秒）。
+ * 只有明确传了 timeoutMs 的请求（目前仅分析运行）才受超时约束，
+ * 其余接口保持原有行为——避免给上传/下载等天然长耗时请求误加天花板。
+ */
+export interface ApiRequestInit extends RequestInit {
+  timeoutMs?: number;
+}
+
 export const api = {
   get: <T = unknown>(path: string) => apiFetch<T>(path, { method: 'GET' }),
-  post: <T = unknown>(path: string, body?: unknown, init?: RequestInit) =>
+  post: <T = unknown>(path: string, body?: unknown, init?: ApiRequestInit) =>
     apiFetch<T>(path, {
       method: 'POST',
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -665,7 +698,9 @@ export const analysisApi = {
     const r = await api.post<{ report: StoredReport }>(
       `/api/lessons/${lessonId}/analysis`,
       body,
-      opts?.signal ? { signal: opts.signal } : undefined,
+      // 分析是长请求（服务端 LLM 阶段上限 55s + 读材料/评分/落库），平台 maxDuration=60s。
+      // 这里留到 90s：若连接不返回，前端必须能自己脱困，不能永久挂在 await 上。
+      { ...(opts?.signal ? { signal: opts.signal } : {}), timeoutMs: 90_000 },
     );
     return r.report;
   },

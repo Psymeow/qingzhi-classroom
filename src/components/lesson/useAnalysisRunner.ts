@@ -36,6 +36,17 @@ function isAbortError(e: unknown): boolean {
 }
 
 /**
+ * 本页自己触发的分析硬超时。用专属 name 与浏览器原生 TimeoutError 区分：
+ * 后者会被 isAbortError 归入「中断」，而这里要给出更准确的超时说明。
+ */
+class AnalysisTimeoutError extends Error {
+  constructor() {
+    super("analysis run timed out");
+    this.name = 'AnalysisTimeoutError';
+  }
+}
+
+/**
  * 后台回连（V1.30）
  *
  * 分析跑在服务端，浏览器只是发了个 POST。用户点完「重新运行分析」就退回上一页时，
@@ -46,9 +57,24 @@ function isAbortError(e: unknown): boolean {
  * 进入页面时若发现未结算的标记，就轮询报告直到指纹变化（新结果已落库）再渲染。
  * 不需要服务端新增状态：每次重新运行都会刷新报告的 updated_at，天然就是结算信号。
  */
-type PendingRun = { startedAt: number; before: string };
+/** at 是标记写入时刻（毫秒）；旧格式可能缺失，读取时按立即过期处理 */
+type PendingRun = { startedAt: number; before: string; at?: number };
 
 /** 平台函数 maxDuration = 60s，再留 40s 余量：超过这个窗口还没结果就认为后台没跑成 */
+/**
+ * 本次分析请求的硬超时（毫秒）。
+ * 服务端 maxDuration=60s、LLM 阶段上限 55s；fetch 侧另配 90s（见 analysisApi.run）。
+ * 这里再留 5s 余量作为兜底：正常由 fetch 先触发，只有 fetch 也失灵（如连接不返回、
+ * AbortSignal 不生效）时才走到这里——它的职责是保证 running/phase/pending 一定能复位。
+ */
+const RUN_HARD_TIMEOUT_MS = 95_000;
+
+/** 标记写入后超过这个时长视为陈旧（本次分析早已结束或从未成功启动），直接跳过恢复 */
+const PENDING_MAX_AGE_MS = 10 * 60_000;
+
+/** 轮询读取连续失败次数上限：约 5 次 × 2s = 10s 内全失败即认定接口不可用，提前退出 */
+const PENDING_MAX_CONSECUTIVE_FAILURES = 5;
+
 const PENDING_TIMEOUT_MS = 100_000;
 const PENDING_POLL_MS = 2000;
 
@@ -66,7 +92,14 @@ function readPending(lessonId: string): PendingRun | null {
     if (!raw) return null;
     const v = JSON.parse(raw) as Partial<PendingRun>;
     if (typeof v.startedAt !== 'number' || typeof v.before !== 'string') return null;
-    return { startedAt: v.startedAt, before: v.before };
+    // 标记带写入时刻：超过 PENDING_MAX_AGE_MS 视为陈旧，直接作废。
+    // 旧格式可能只有 startedAt / 没有 at，此时按立即过期处理——宁可少等一轮，也不空转 100s。
+    const at = typeof v.at === 'number' ? v.at : null;
+    if (at === null || Date.now() - at > PENDING_MAX_AGE_MS) {
+      clearPending(lessonId);
+      return null;
+    }
+    return { startedAt: v.startedAt, before: v.before, at };
   } catch {
     // 隐私模式或存储被禁用：退回「无回连」，不影响分析本身
     return null;
@@ -75,7 +108,10 @@ function readPending(lessonId: string): PendingRun | null {
 
 function writePending(lessonId: string, before: string) {
   try {
-    window.localStorage.setItem(pendingKey(lessonId), JSON.stringify({ startedAt: Date.now(), before }));
+    window.localStorage.setItem(
+      pendingKey(lessonId),
+      JSON.stringify({ startedAt: Date.now(), before, at: Date.now() }),
+    );
   } catch {
     /* 同上：写不进去就当没有回连 */
   }
@@ -146,6 +182,8 @@ export function useAnalysisRunner(opts: {
     async (pending: PendingRun, isCancelled: () => boolean) => {
       setPhase('上一次分析仍在后台进行，正在等待结果…');
       const deadline = pending.startedAt + PENDING_TIMEOUT_MS;
+      // 连续读取失败也要退出：接口持续 404/500 时，继续空转只是把 100s 白白等满。
+      let consecutiveFailures = 0;
       try {
         while (Date.now() < deadline) {
           await sleep(PENDING_POLL_MS);
@@ -153,8 +191,14 @@ export function useAnalysisRunner(opts: {
           let next: StoredReport | null = null;
           try {
             next = await analysisApi.get(lessonId);
+            consecutiveFailures = 0;
           } catch {
-            // 网络抖动不算失败，下一轮再试
+            // 网络抖动可容忍，但连续失败说明报告接口本身有问题，不再空转
+            consecutiveFailures += 1;
+            if (consecutiveFailures >= PENDING_MAX_CONSECUTIVE_FAILURES) {
+              setError('报告读取连续失败，已停止等待；请稍后刷新页面查看结果。');
+              return;
+            }
             continue;
           }
           if (isCancelled()) return;
@@ -222,16 +266,28 @@ export function useAnalysisRunner(opts: {
       else setPhase('正在综合多源材料完成评分…');
     }, 1200);
     try {
-      const r = await analysisApi.run(
-        lessonId,
-        {
-          source_weights: { ...DEFAULT_SOURCE_WEIGHTS },
-          calibrations: runOpts?.calibrations ?? [],
-          use_llm: useLlm,
-          lesson_type: lessonType,
-        },
-        { signal: controller.signal },
-      );
+      // 硬超时兜底：fetch 侧已有 90s，这里 95s 再兜一层。若请求永不返回（连接未关闭、
+      // AbortSignal 不生效等），必须由这里主动 abort 并抛错，否则 running 永久为 true，
+      // 按钮锁死在「取消」态、进度条永久转、pending 标记同步残留。
+      let timer: number | undefined;
+      const r = await Promise.race([
+        analysisApi.run(
+          lessonId,
+          {
+            source_weights: { ...DEFAULT_SOURCE_WEIGHTS },
+            calibrations: runOpts?.calibrations ?? [],
+            use_llm: useLlm,
+            lesson_type: lessonType,
+          },
+          { signal: controller.signal },
+        ),
+        new Promise<never>((_, reject) => {
+          timer = window.setTimeout(() => {
+            controller.abort();
+            reject(new AnalysisTimeoutError());
+          }, RUN_HARD_TIMEOUT_MS);
+        }),
+      ]).finally(() => window.clearTimeout(timer));
       setReport(r);
       onReportChange(r);
     } catch (e) {
@@ -239,7 +295,13 @@ export function useAnalysisRunner(opts: {
         onUnauthorized();
         return;
       }
-      if (controller.signal.aborted) {
+      if (e instanceof AnalysisTimeoutError) {
+        // fetch 与本页兜底都没能在窗口内拿到结果：服务端可能仍在处理。
+        console.warn('[analysis] 请求超时未返回', e);
+        setError(
+          '本次分析超时未返回。服务器可能仍在处理，请刷新页面查看结果；若报告已更新可直接查看，未更新可稍后再试。',
+        );
+      } else if (controller.signal.aborted) {
         // 用户主动取消：不作为错误，保留上一次报告。
         setError(null);
       } else if (isAbortError(e)) {
@@ -263,7 +325,9 @@ export function useAnalysisRunner(opts: {
   }
 
   function cancelRun() {
+    // 取消是用户主动行为：标记不应残留，否则下次进页面会去空等一次已放弃的分析。
     abortRef.current?.abort();
+    clearPending(lessonId);
   }
 
   return {
