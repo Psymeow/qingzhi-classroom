@@ -124,7 +124,13 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     if (e instanceof AuthError) {
       return NextResponse.json({ error: e.message }, { status: e.status });
     }
-    console.error('[export-docx] 生成失败：', e);
+    // 原始错误必须留痕：此前只回给前端一句「生成 Word 报告失败」，
+    // 堆栈与原始 message 全部丢失，线上排查只能靠猜（V1.36 的 client 边界问题即因此迟迟未能定位）。
+    // message 与 stack 显式打印，方便按日志检索。
+    console.error(
+      '[export-docx] 生成失败：',
+      e instanceof Error ? { name: e.name, message: e.message, stack: e.stack } : e,
+    );
     return NextResponse.json({ error: '生成 Word 报告失败，请稍后重试' }, { status: 500 });
   }
 }

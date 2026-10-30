@@ -28,7 +28,7 @@ import { SOURCE_LABEL } from '@/lib/evaluation/types';
 import { EVENT_CATEGORY_LABEL } from '@/lib/evaluation/annotation-types';
 import type { TimelineEvent } from '@/lib/evaluation/annotation-types';
 import type { DimMeta } from '@/components/annotation/DimensionScores';
-import { deriveEssenceHeadline, STATE_META } from '@/components/report/EssenceOnePager';
+import { deriveEssenceHeadline, STATE_META } from '@/lib/report/essence-headline';
 import { METHODOLOGY_NOTE, collectBibliography } from '@/lib/report/theory-anchors';
 
 /* ------------------------------------------------------------------ *
