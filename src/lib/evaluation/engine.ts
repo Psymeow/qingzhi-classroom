@@ -664,7 +664,7 @@ export function applyCalibration(
   return next;
 }
 
-function bandLevelOf100(score100: number): string {
+export function bandLevelOf100(score100: number): string {
   if (score100 >= 85) return "优秀";
   if (score100 >= 70) return "良好";
   if (score100 >= 55) return "中等";

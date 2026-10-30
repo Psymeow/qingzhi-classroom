@@ -455,10 +455,17 @@ export interface EssenceHeadline {
   /** 情感侧（数学情感素养 D3）0-100，与下方五维表同源同尺；无数据为 null */
   affective_100: number | null;
   /**
-   * 判读结论：两个向度的共同水平，不比较高下 —— 情智俱佳 / 情智稳步 / 情智起步 / 材料待补。
-   * 认知与情感衡量的是不同向度，「谁比谁高」不构成有意义的结论，故不做跨向度比较。
+   * 关系形态（不是水平高低，也不比较优劣）：两线并进 / 认知侧走得更前 / 情感侧走得更前 / 材料待补。
+   * 「情智相长」的核心是异步带动——认知与情感本可以不同步，把两者压成一个木桶短板标签
+   * 会把「竞赛课（认知强情感冷）」与「活动课（情感热认知浅）」混成同一档，而两者下节课
+   * 该改的方向完全相反。因此这里报告的是结构关系：哪一侧走得更前，仅此而已。
+   * 报告关系不等于比较优劣 —— 两个向度衡量的是不同的东西，「认知更好」不成立。
    */
-  state: "strong" | "mid" | "weak" | "insufficient";
+  state: "parallel" | "cog_ahead" | "aff_ahead" | "insufficient";
+  /** 认知侧档位名（取自 bandLevelOf100，与五维表同源同尺）；无数据为 null */
+  cognitive_band: string | null;
+  /** 情感侧档位名（同上）；无数据为 null */
+  affective_band: string | null;
   /** 材料齐备路数 / 应备路数 */
   material_ready: number;
   material_total: number;

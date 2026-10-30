@@ -28,6 +28,7 @@ import { SOURCE_LABEL } from '@/lib/evaluation/types';
 import { EVENT_CATEGORY_LABEL } from '@/lib/evaluation/annotation-types';
 import type { TimelineEvent } from '@/lib/evaluation/annotation-types';
 import type { DimMeta } from '@/components/annotation/DimensionScores';
+import { deriveEssenceHeadline, STATE_META } from '@/components/report/EssenceOnePager';
 import { METHODOLOGY_NOTE, collectBibliography } from '@/lib/report/theory-anchors';
 
 /* ------------------------------------------------------------------ *
@@ -55,6 +56,10 @@ function scoreHex(score: number | null | undefined): string {
 }
 
 const BRAND = '4F46E5'; // 主色（indigo-600）
+
+/** 四档通用的防误读说明：关系形态是重心位置，不是好坏判断（与页面 STATE_META 同句） */
+const NOT_A_VERDICT_TEXT =
+  '这只是说明这节课的重心在哪一侧，不是好坏判断。两个向度衡量的是不同的东西，不该比高低。';
 const INK = '1F2937'; // 正文
 const MUTED = '6B7280'; // 次要文字
 const LINE = 'E5E7EB'; // 边框
@@ -370,26 +375,10 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
     }),
   );
 
-  // 情智双侧速读：认知/情感取五维直评口径（D2 / D3）×10 → 0-100，与页面 EssenceOnePager 同口径。
-  // 不做认知 vs 情感的高低比较：两者衡量不同向度，「智强情弱」这类结论本身不成立。
-  const dimOf = (code: string) =>
-    report.dimension_results.find((d) => d.dimension_code === code)?.score ?? null;
-  const dim100 = (v: number | null) => (v === null ? null : v * 10);
-  const cog100 = dim100(dimOf('D2'));
-  const aff100 = dim100(dimOf('D3'));
-  // V1.32 不再输出「融合落地」（D1 与 D4 的平均）：D1 量设计意图、D4 量课堂实然，
-  // 平均既不代表设计水平也不代表实施水平，还会把「设计好但落地打折」的落差信号抹掉。
-  // D1/D4 的完整展示仍在下方五维表。
-
-  // 判读只看两个向度的共同水平（短板），不比较高下。
-  // 与页面 EssenceOnePager.STATE_META 保持同一套 label/desc 口径（V1.33 发展性表述）
-  const stateLabel = (() => {
-    if (cog100 === null || aff100 === null) return '材料待补';
-    const floor = Math.min(cog100, aff100);
-    if (floor >= 70) return '情智俱佳';
-    if (floor >= 60) return '情智稳步';
-    return '情智起步';
-  })();
+  // 情智双侧速读：直接复用页面的派生函数，判定逻辑与文案只有一处来源，
+  // 避免 Word 与页面各写一遍阈值导致口径漂移（曾出现 70/60 与 85/70/55/35 两套尺子）。
+  const headline = deriveEssenceHeadline(report);
+  const stateLabel = STATE_META[headline.state].label;
 
   children.push(
     table(
@@ -399,15 +388,23 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
         [
           headCell('认知素养（高阶思维 D2）'),
           headCell('情感素养（D3）', undefined, AlignmentType.CENTER),
-          headCell('判读', undefined, AlignmentType.CENTER),
+          headCell('关系形态', undefined, AlignmentType.CENTER),
         ],
         [
-          bodyCell(cog100 === null ? '—' : `${cog100.toFixed(1)} / 100`, { bold: true, color: scoreHex((cog100 ?? 0) / 10), align: AlignmentType.CENTER }),
-          bodyCell(aff100 === null ? '—' : `${aff100.toFixed(1)} / 100`, { bold: true, color: scoreHex((aff100 ?? 0) / 10), align: AlignmentType.CENTER }),
+          bodyCell(
+            `${headline.cognitive_100 === null ? '—' : (headline.cognitive_100 / 10).toFixed(1) + ' / 10'}${headline.cognitive_band ? ' · ' + headline.cognitive_band : ''}`,
+            { bold: true, color: scoreHex((headline.cognitive_100 ?? 0) / 10), align: AlignmentType.CENTER },
+          ),
+          bodyCell(
+            `${headline.affective_100 === null ? '—' : (headline.affective_100 / 10).toFixed(1) + ' / 10'}${headline.affective_band ? ' · ' + headline.affective_band : ''}`,
+            { bold: true, color: scoreHex((headline.affective_100 ?? 0) / 10), align: AlignmentType.CENTER },
+          ),
           bodyCell(stateLabel, { bold: true, color: BRAND, align: AlignmentType.CENTER }),
         ],
       ],
     ),
+    p([t(STATE_META[headline.state].desc, { size: 18, color: MUTED })]),
+    p([t(NOT_A_VERDICT_TEXT, { size: 17, color: MUTED, italics: true })]),
     new Paragraph({ spacing: { after: 160 }, children: [] }),
   );
 

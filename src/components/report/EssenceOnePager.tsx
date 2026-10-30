@@ -3,6 +3,7 @@
 import { Brain, Heart, Sparkles, Target, ChevronDown, AlertTriangle } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import type { AnalysisReport, EssenceHeadline } from '@/lib/evaluation/types';
+import { bandLevelOf100 } from '@/lib/evaluation/engine';
 
 // ============================================================
 // 情智相长 · 一页速读（V1.11）
@@ -27,14 +28,19 @@ export function deriveEssenceHeadline(report: AnalysisReport): EssenceHeadline {
   const cog = to100(dimScore('D2'));
   const aff = to100(dimScore('D3'));
 
-  // 判读只看两个向度的共同水平（短板），不做认知 vs 情感的高低比较：
-  // 两者衡量不同向度，「智强情弱」「情浓智浅」这类结论本身不成立。
+  // 档位名直接复用 bandLevelOf100：与下方五维表同一套尺子，
+  // 避免出现「同一分数五维说中等、情智说起步」的口径冲突。
+  const cogBand = cog === null ? null : bandLevelOf100(cog);
+  const affBand = aff === null ? null : bandLevelOf100(aff);
+
+  // 判定的是两向度的关系形态，不是共同水平，更不做高低优劣比较。
+  // 阈值 15（0-100 制，即 1.5 分）为未标定的默认值——待用真实课例标定后再固化。
   let state: EssenceHeadline['state'] = 'insufficient';
   if (cog !== null && aff !== null) {
-    const floor = Math.min(cog, aff);
-    if (floor >= 70) state = 'strong';
-    else if (floor >= 60) state = 'mid';
-    else state = 'weak';
+    const gap = cog - aff;
+    if (Math.abs(gap) <= 15) state = 'parallel';
+    else if (gap > 15) state = 'cog_ahead';
+    else state = 'aff_ahead';
   }
 
   const availability = Object.values(report.source_availability ?? {}) as boolean[];
@@ -47,6 +53,8 @@ export function deriveEssenceHeadline(report: AnalysisReport): EssenceHeadline {
   return {
     cognitive_100: cog,
     affective_100: aff,
+    cognitive_band: cogBand,
+    affective_band: affBand,
     state,
     material_ready: availability.filter(Boolean).length,
     material_total: availability.length,
@@ -55,27 +63,30 @@ export function deriveEssenceHeadline(report: AnalysisReport): EssenceHeadline {
   };
 }
 
-const STATE_META: Record<
+export const STATE_META: Record<
   EssenceHeadline['state'],
   { label: string; desc: string; badge: string; ring: string }
 > = {
-  strong: {
-    label: '情智俱佳',
-    desc: '两个向度都处在良好以上，是本课最扎实的地方。',
+  // 关系形态（不是水平档，也不是优劣判定）：只说哪一侧走得更前。
+  // 配色沿用原语义：并进=emerald、有前后=sky、缺材料=muted；
+  // 关系形态不是警示，故不用 amber / 红色。
+  parallel: {
+    label: '两线并进',
+    desc: '两个向度的水平接近，这节课两条线走得比较齐。',
     badge: 'bg-emerald-100 text-emerald-700 border-emerald-200',
     ring: 'from-emerald-50/80',
   },
-  mid: {
-    label: '情智稳步',
-    desc: '两个向度都已站上中段，向上抬升的空间清晰可见。',
+  cog_ahead: {
+    label: '认知侧走得更前',
+    desc: '认知侧的推进比情感侧更明显，学生在思考上走得更远，投入感还没跟上。',
     badge: 'bg-sky-100 text-sky-700 border-sky-200',
     ring: 'from-sky-50/80',
   },
-  weak: {
-    label: '情智起步',
-    desc: '两个向度都已起步，下一轮从「一个能让学生想说话的开放问题」推进。',
-    badge: 'bg-amber-100 text-amber-700 border-amber-200',
-    ring: 'from-amber-50/80',
+  aff_ahead: {
+    label: '情感侧走得更前',
+    desc: '情感侧的投入比认知推进更明显，学生愿意参与，深度思考还没跟上。',
+    badge: 'bg-sky-100 text-sky-700 border-sky-200',
+    ring: 'from-sky-50/80',
   },
   insufficient: {
     label: '材料待补',
@@ -84,6 +95,10 @@ const STATE_META: Record<
     ring: 'from-muted/60',
   },
 };
+
+// 四档通用：说明这是重心位置而非好坏。必须每档都显示，否则教师会把「走得更前」读成更好。
+const NOT_A_VERDICT =
+  '这只是说明这节课的重心在哪一侧，不是好坏判断。两个向度衡量的是不同的东西，不该比高低。';
 
 function fmt(n: number | null, digits = 1): string {
   return n === null || Number.isNaN(n) ? '—' : n.toFixed(digits);
@@ -128,25 +143,30 @@ export default function EssenceOnePager({ report }: { report: AnalysisReport }) 
               <Brain className="h-3 w-3" /> 认知侧
             </div>
             <div className="mt-0.5 text-xl font-bold tabular-nums text-foreground">
-              {fmt(headline.cognitive_100)}
-              <span className="ml-0.5 text-[11px] font-normal text-muted-foreground">/100</span>
+              {fmt(headline.cognitive_100 === null ? null : headline.cognitive_100 / 10)}
+              <span className="ml-0.5 text-[11px] font-normal text-muted-foreground">/ 10</span>
             </div>
-            <div className="text-[10px] text-muted-foreground">高阶思维 11 指标</div>
+            <div className="text-[10px] text-muted-foreground">
+              高阶思维 D2 · {headline.cognitive_band ?? '—'}
+            </div>
           </div>
           <div className="rounded-lg border border-border/70 bg-card/70 px-3 py-2">
             <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
               <Heart className="h-3 w-3" /> 情感侧
             </div>
             <div className="mt-0.5 text-xl font-bold tabular-nums text-foreground">
-              {fmt(headline.affective_100)}
-              <span className="ml-0.5 text-[11px] font-normal text-muted-foreground">/100</span>
+              {fmt(headline.affective_100 === null ? null : headline.affective_100 / 10)}
+              <span className="ml-0.5 text-[11px] font-normal text-muted-foreground">/ 10</span>
             </div>
-            <div className="text-[10px] text-muted-foreground">情感素养 8 指标</div>
+            <div className="text-[10px] text-muted-foreground">
+              情感素养 D3 · {headline.affective_band ?? '—'}
+            </div>
           </div>
         </div>
 
-        {/* 一句判读 */}
+        {/* 关系形态描述 + 防误读说明（四档通用，必须每档都显示） */}
         <p className="text-[13px] leading-relaxed text-foreground/90">{meta.desc}</p>
+        <p className="text-[10px] leading-relaxed text-muted-foreground">{NOT_A_VERDICT}</p>
         {couplingText && (
           <p className="rounded-lg border border-primary/15 bg-primary/5 px-3 py-2 text-xs leading-relaxed text-foreground/85">
             <span className="font-medium text-primary">情智怎么互相作用：</span>
