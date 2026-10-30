@@ -34,12 +34,12 @@ export function deriveEssenceHeadline(report: AnalysisReport): EssenceHeadline {
   const affBand = aff === null ? null : bandLevelOf100(aff);
 
   // 判定的是两向度的关系形态，不是共同水平，更不做高低优劣比较。
-  // 阈值 15（0-100 制，即 1.5 分）为未标定的默认值——待用真实课例标定后再固化。
+  // 阈值见 ESSENCE_GAP_THRESHOLD（未标定的默认值，待真实课例标定后再固化）。
   let state: EssenceHeadline['state'] = 'insufficient';
   if (cog !== null && aff !== null) {
     const gap = cog - aff;
-    if (Math.abs(gap) <= 15) state = 'parallel';
-    else if (gap > 15) state = 'cog_ahead';
+    if (Math.abs(gap) <= ESSENCE_GAP_THRESHOLD) state = 'parallel';
+    else if (gap > ESSENCE_GAP_THRESHOLD) state = 'cog_ahead';
     else state = 'aff_ahead';
   }
 
@@ -62,6 +62,17 @@ export function deriveEssenceHeadline(report: AnalysisReport): EssenceHeadline {
     indicator_total: indicatorTotal,
   };
 }
+
+/**
+ * 「两线并进」的判定阈值（0-100 制）。
+ * 15 分 = 0-10 制的 1.5 分 ≈ 0.75 个档位间距（相邻档位间距为 20 分）。
+ *
+ * **未标定。** 该值按「差距明显但尚未跨档」的直觉设定，尚未用真实课例校准。
+ * 标定方法：取 10 节以上真实课例，由教研员独立判读其两向度是否构成「重心偏移」，
+ * 再回推分差分布，取能最大程度复现人工判读的切分点。
+ * 标定前，对外不要把这个判定表述为已验证有效。
+ */
+export const ESSENCE_GAP_THRESHOLD = 15;
 
 export const STATE_META: Record<
   EssenceHeadline['state'],

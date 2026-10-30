@@ -311,7 +311,7 @@ function bandLabel(std: RubricStandard, dimCode: string, score: number | null) {
   return (dim.bands.find((b) => (score as number) >= b.min && (score as number) <= b.max) ?? dim.bands[0]).label;
 }
 
-/** 0-10 分的通用五档标签（课型要点/视角使用） */
+/** 0-10 分的通用五档标签。全局唯一的五档阈值源（8.1/6.1/4.1/2.1），刻度尺、着色、Word 配色均以此为准 */
 /**
  * 通用五档词（V1.33 发展性口径）。
  * 「待提升」→「可精进」、「需重点改进」→「起步阶段」：不抬高任何分数与阈值，
@@ -664,10 +664,13 @@ export function applyCalibration(
   return next;
 }
 
+/**
+ * 0-100 分的通用五档标签。
+ * 阈值不在此处重复定义——直接委托 bandLabel10(x / 10)，
+ * 与 ScaleBar 刻度、指标格着色、Word 配色共用同一套边界（8.1/6.1/4.1/2.1）。
+ * 历史遗留：本函数曾是独立实现（85/70/55/35），与 bandLabel10 相差 4–14 分，
+ * 导致同一分数在徽标与刻度尺上得到不同结论。V1.35 统一。
+ */
 export function bandLevelOf100(score100: number): string {
-  if (score100 >= 85) return "优秀";
-  if (score100 >= 70) return "良好";
-  if (score100 >= 55) return "中等";
-  if (score100 >= 35) return "可精进";
-  return "起步阶段";
+  return bandLabel10(score100 / 10) ?? "起步阶段";
 }
