@@ -8,7 +8,7 @@
 // 数据全部复用已有报告，不新增采集、不新增评分。
 // ============================================================
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Loader2, Printer, FileText } from 'lucide-react';
@@ -21,6 +21,24 @@ import {
   type StoredReport,
 } from '@/lib/api/client';
 import EssenceOnePager from '@/components/report/EssenceOnePager';
+import { bandLabel10 } from '@/lib/evaluation/engine';
+
+/** 五维短名（一页速读固定口径，映射不到时回退用维度代码） */
+const DIM_SHORT: Record<string, string> = {
+  D1: '融合设计',
+  D2: '高阶思维',
+  D3: '情感素养',
+  D4: '共生实施',
+  D5: '反思反馈',
+};
+
+/** 维度分数 → 进度条前景色（与引擎五档阈值同口径） */
+function dimBarColor(score: number): string {
+  if (score >= 8.1) return 'bg-emerald-500';
+  if (score >= 6.1) return 'bg-sky-500';
+  if (score >= 4.1) return 'bg-amber-500';
+  return 'bg-rose-500';
+}
 
 export default function OnePageClient() {
   const params = useParams();
@@ -61,6 +79,26 @@ export default function OnePageClient() {
   }, [id, router]);
 
   const handlePrint = () => window.print();
+
+  // 五维速览：按 D1-D5 固定顺序取分；全部无分则整块不渲染
+  const dimOverview = useMemo(() => {
+    if (!report) return null;
+    const order = ['D1', 'D2', 'D3', 'D4', 'D5'];
+    const rows = order.map((code) => {
+      const d = report.result.dimension_results.find((x) => x.dimension_code === code);
+      return { code, score: d?.score ?? null };
+    });
+    if (rows.every((r) => r.score === null)) return null;
+    let weakestCode: string | null = null;
+    let weakestScore = Number.POSITIVE_INFINITY;
+    for (const r of rows) {
+      if (r.score !== null && r.score < weakestScore) {
+        weakestScore = r.score;
+        weakestCode = r.code;
+      }
+    }
+    return { rows, weakestCode };
+  }, [report]);
 
   return (
     <div className="min-h-screen bg-muted/30 print:bg-white">
@@ -115,6 +153,56 @@ export default function OnePageClient() {
             </header>
 
             <EssenceOnePager report={report.result} />
+
+            {/* 五维速览：综合分 + 五维各自分数，让教师一页看全「这课多少分、哪块弱」 */}
+            {dimOverview && (
+              <div className="mt-3 rounded-lg border border-border/70 bg-card/60 px-3 py-2">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[11px] font-medium text-muted-foreground">五维速览</span>
+                  <span className="text-[11px] text-muted-foreground">
+                    综合{' '}
+                    <span className="text-sm font-bold tabular-nums text-foreground">
+                      {report.result.total_score.toFixed(1)}
+                    </span>
+                    {' /100 · '}
+                    {bandLabel10(report.result.total_score / 10)}
+                  </span>
+                </div>
+                <div className="mt-1.5 grid grid-cols-5 gap-1.5">
+                  {dimOverview.rows.map((r) => {
+                    const isWeakest = r.code === dimOverview.weakestCode;
+                    const short = DIM_SHORT[r.code] ?? r.code.slice(0, 4);
+                    const color = r.score === null ? 'bg-muted' : dimBarColor(r.score);
+                    const widthPct =
+                      r.score === null ? 0 : Math.round(Math.min(Math.max(r.score / 10, 0), 1) * 100);
+                    return (
+                      <div
+                        key={r.code}
+                        className={`flex flex-col items-center rounded-md px-1 py-1 text-center ${
+                          isWeakest ? 'bg-rose-50/50 ring-1 ring-rose-300/70' : ''
+                        }`}
+                      >
+                        <span className="relative text-[10px] leading-tight text-muted-foreground">
+                          {short}
+                          {isWeakest && (
+                            <span className="absolute -right-1.5 -top-0.5 h-0.5 w-0.5 rounded-full bg-rose-500" />
+                          )}
+                        </span>
+                        <span className="mt-0.5 text-sm font-bold tabular-nums text-foreground">
+                          {r.score === null ? '—' : r.score.toFixed(1)}
+                        </span>
+                        <span className="mt-0.5 h-[3px] w-full overflow-hidden rounded-full bg-muted">
+                          <span
+                            className={`block h-full rounded-full ${color}`}
+                            style={{ width: `${widthPct}%` }}
+                          />
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* 落款与声明 */}
             <footer className="mt-3 border-t border-border pt-2 text-[10px] leading-relaxed text-muted-foreground">
