@@ -493,7 +493,10 @@ export default function ReportView({
               <ScaleBar score={result.total_score / 10} band={result.total_level} showMeta={false} />
             </div>
             <div className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
-              满分 100 · 五维加权平均 ×10
+              折算分 · 五维加权平均 ×10
+            </div>
+            <div className="mt-1 text-[10px] leading-relaxed text-muted-foreground/70">
+              本分为模型折算值，不等同学校考试百分制，不用于横向排名。
             </div>
             {insufficientBasis && (
               <div className="mt-2 flex items-start gap-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] leading-snug text-amber-800 print:border-amber-300 print:bg-amber-50">
@@ -656,7 +659,7 @@ export default function ReportView({
                       <span className="font-medium">{meta?.name ?? c.dimension_code}</span>：
                       AI {dr?.ai_score !== undefined && dr.ai_score !== null ? dr.ai_score.toFixed(1) : '—'}
                       {' → '}终裁 <span className="font-semibold">{c.final_score?.toFixed(1)}</span>
-                      {c.reviewer ? ` · 终裁人 ${c.reviewer}` : ''}
+                      {c.reviewer && /[\u4e00-\u9fa5]/.test(c.reviewer) ? ` · 终裁人 ${c.reviewer}` : ''}
                       {c.reviewed_at ? ` · ${new Date(c.reviewed_at).toLocaleDateString('zh-CN')}` : ''}
                       {c.review_note ? `；理由：${c.review_note}` : ''}
                     </li>

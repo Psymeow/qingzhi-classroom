@@ -336,6 +336,10 @@ export default function EssenceEvalView({
         </div>
       </div>
 
+      <p className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+        这里的指标分与前面五维部分的同名指标分不是同一口径：五维部分是该指标的整段直评，这里是该指标下各观察点逐点判定后的均值。两者独立计算、未互相校准，数值不同属正常。看教学表现以本节逐点判定为主，五维直评作整体印象参考。
+      </p>
+
       <DomainBlock
         title="认知 · 高阶思维（11 个二级指标）"
         icon={<Brain className="h-4 w-4" />}
