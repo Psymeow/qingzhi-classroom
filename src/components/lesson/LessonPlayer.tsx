@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Film, Loader2, Volume2, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -218,7 +218,9 @@ export default function LessonPlayer({ lessonId }: { lessonId: string }) {
     }
   }, [loadTimeline]);
 
-  const segments = data?.segments ?? [];
+  // 固定数组引用：data?.segments ?? [] 每次 render 都新建空数组，
+  // 引用变化会让下游依赖 segments 的 memo/useEffect 失效
+  const segments = useMemo(() => data?.segments ?? [], [data]);
   segmentsRef.current = segments;
 
   // 换片源/重新加载后重算当前句，避免上一个媒体的高亮残留在不存在的段号上

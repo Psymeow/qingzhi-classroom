@@ -2,7 +2,7 @@
 
 // V1.3 表一内涵评价：认知（3 类 11 指标）+ 情感（4 类 8 指标），每指标下细化观察点评分明细。
 // V1.19：认知/情感两个一级内涵各挂一段可展开的 AI 四段式解读（与五维维度解读同款）。
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Brain, Heart, ChevronDown, Quote, FileQuestion } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -48,9 +48,10 @@ function sortPoints(points: EssencePointResult[]): EssencePointResult[] {
 
 function IndicatorRow({ ind }: { ind: EssenceIndicatorResult }) {
   const [open, setOpen] = useState(false);
-  const scored = ind.points.filter((p) => p.score != null).length;
-  const pending = ind.points.filter((p) => p.missing_material).length;
-  const orderedPoints = sortPoints(ind.points);
+  // 指标内只有 open 变化，points 本身只随数据变；包 useMemo 让展开/收起不再重跑两次 filter + 一次排序
+  const scored = useMemo(() => ind.points.filter((p) => p.score != null).length, [ind]);
+  const pending = useMemo(() => ind.points.filter((p) => p.missing_material).length, [ind]);
+  const orderedPoints = useMemo(() => sortPoints(ind.points), [ind]);
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
@@ -188,19 +189,27 @@ function DomainBlock({
   onRetry: () => void;
 }) {
   // 按一级类别（策略型/批判型/…）保持出现顺序分组
-  const groups: { category: string; items: EssenceIndicatorResult[] }[] = [];
-  for (const ind of domain.indicators) {
-    let g = groups.find((x) => x.category === ind.category);
-    if (!g) {
-      g = { category: ind.category, items: [] };
-      groups.push(g);
+  // 只随 domain 变化重算；收起/展开单个指标会重渲整个 DomainBlock，memo 挡掉重复分组
+  const groups = useMemo(() => {
+    const out: { category: string; items: EssenceIndicatorResult[] }[] = [];
+    for (const ind of domain.indicators) {
+      let g = out.find((x) => x.category === ind.category);
+      if (!g) {
+        g = { category: ind.category, items: [] };
+        out.push(g);
+      }
+      g.items.push(ind);
     }
-    g.items.push(ind);
-  }
+    return out;
+  }, [domain]);
 
-  const pendingPoints = domain.indicators.reduce(
-    (n, ind) => n + ind.points.filter((p) => p.missing_material).length,
-    0,
+  const pendingPoints = useMemo(
+    () =>
+      domain.indicators.reduce(
+        (n, ind) => n + ind.points.filter((p) => p.missing_material).length,
+        0,
+      ),
+    [domain],
   );
   // 已评分点占「可评点」（排除待补材料点）比例过低时提示
   const evaluable = domain.total_points - pendingPoints;
@@ -276,6 +285,21 @@ export default function EssenceEvalView({
   });
   const interpFor = (code: string) => items?.find((i) => i.dimension_code === code) ?? null;
 
+  // 待补材料点数：两个域合计，纯派生值。每次 render（含展开/收起子组件）都会重算，
+  // memo 后只随 ev 变。注意必须放在下面 if (!ev.llm_used) return 之前，否则违反 hook 规则。
+  const pendingTotal = useMemo(
+    () =>
+      ev.cognitive.indicators.reduce(
+        (n, ind) => n + ind.points.filter((p) => p.missing_material).length,
+        0,
+      ) +
+      ev.affective.indicators.reduce(
+        (n, ind) => n + ind.points.filter((p) => p.missing_material).length,
+        0,
+      ),
+    [ev],
+  );
+
   if (!ev.llm_used) {
     return (
       <Card className="border-dashed">
@@ -292,15 +316,7 @@ export default function EssenceEvalView({
         <h3 className="text-base font-semibold">表一 · 认知与情感内涵观察点分析</h3>
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
           {(() => {
-            const pending =
-              ev.cognitive.indicators.reduce(
-                (n, ind) => n + ind.points.filter((p) => p.missing_material).length,
-                0,
-              ) +
-              ev.affective.indicators.reduce(
-                (n, ind) => n + ind.points.filter((p) => p.missing_material).length,
-                0,
-              );
+            const pending = pendingTotal;
             const evaluable = ev.total_points - pending;
             return (
               <span>

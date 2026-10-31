@@ -85,6 +85,36 @@ export default function AnalysisPanel({ lessonId, dimensions, onUnauthorized, ru
     enabled: !!report && report.result.ai_meta?.enabled !== false,
   });
 
+  const result = report?.result;
+  const availability = result?.source_availability;
+  // P1-2：评价依据充分性。可用来源 <2 个时，分数仅来自单一渠道，显著提示谨慎解读。
+  const availableSourceCount = useMemo(
+    () => (availability ? SOURCE_KEYS.filter((k) => availability[k]).length : 0),
+    [availability],
+  );
+  const insufficientBasis = availableSourceCount <= 1;
+  const reviewDims = useMemo(
+    () => result?.dimension_results.filter((d) => d.need_review) ?? [],
+    [result],
+  );
+  const aiMeta = result?.ai_meta;
+  const commentary = result?.ai_commentary;
+  const lessonTypeEval = result?.lesson_type_eval ?? null;
+
+  // 指标覆盖：已评/总数，纯派生值，只随 result 变
+  const totalIndicators = useMemo(
+    () => result?.dimension_results.reduce((n, d) => n + d.indicators.length, 0) ?? 0,
+    [result],
+  );
+  const scoredIndicators = useMemo(
+    () =>
+      result?.dimension_results.reduce(
+        (n, d) => n + d.indicators.filter((ind) => ind.score !== null && ind.score !== undefined).length,
+        0,
+      ) ?? 0,
+    [result],
+  );
+
   if (runner.loading) {
     return (
       <div className="flex h-28 items-center justify-center text-sm text-muted-foreground">
@@ -93,17 +123,6 @@ export default function AnalysisPanel({ lessonId, dimensions, onUnauthorized, ru
     );
   }
 
-  const result = report?.result;
-  const availability = result?.source_availability;
-  // P1-2：评价依据充分性。可用来源 <2 个时，分数仅来自单一渠道，显著提示谨慎解读。
-  const availableSourceCount = availability
-    ? SOURCE_KEYS.filter((k) => availability[k]).length
-    : 0;
-  const insufficientBasis = availableSourceCount <= 1;
-  const reviewDims = result?.dimension_results.filter((d) => d.need_review) ?? [];
-  const aiMeta = result?.ai_meta;
-  const commentary = result?.ai_commentary;
-  const lessonTypeEval = result?.lesson_type_eval ?? null;
   const essenceEval = result?.essence_eval ?? null;
 
   return (
@@ -151,16 +170,9 @@ export default function AnalysisPanel({ lessonId, dimensions, onUnauthorized, ru
                 {report.is_calibrated && (
                   <div className="mt-1.5 text-[11px] font-medium text-emerald-600">已含人工校准终裁</div>
                 )}
-                {(() => {
-                  const total = result.dimension_results.reduce((n, d) => n + d.indicators.length, 0);
-                  const scored = result.dimension_results.reduce(
-                    (n, d) => n + d.indicators.filter((ind) => ind.score !== null && ind.score !== undefined).length,
-                    0,
-                  );
-                  return total > 0 ? (
-                    <div className="mt-1.5 text-[11px] text-muted-foreground">指标覆盖 {scored}/{total}</div>
-                  ) : null;
-                })()}
+                {totalIndicators > 0 ? (
+                  <div className="mt-1.5 text-[11px] text-muted-foreground">指标覆盖 {scoredIndicators}/{totalIndicators}</div>
+                ) : null}
                 {insufficientBasis && (
                   <div className="mt-2 flex items-start gap-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] leading-snug text-amber-800">
                     <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
@@ -238,6 +250,8 @@ export default function AnalysisPanel({ lessonId, dimensions, onUnauthorized, ru
               {result.dimension_results.map((d, idx) => {
                 const meta = dimMeta.get(d.dimension_code);
                 const name = meta?.name ?? d.dimension_code;
+                // 对账口径里的已评指标数：每维度算一次，避免在 JSX 里内联 filter().length
+                const scoredIndCount = d.indicators.filter((i) => i.score !== null).length;
                 return (
                   <Card key={d.dimension_code} className="shadow-card">
                     <CardContent className="p-4">
@@ -270,7 +284,7 @@ export default function AnalysisPanel({ lessonId, dimensions, onUnauthorized, ru
                         {d.reconcile_method === 'indicator_aggregate' ? (
                           <span>
                             {typeof d.ai_score === 'number' ? 'AI 分对账：' : '对账：'}
-                            {d.indicators.filter((i) => i.score !== null).length} 项二级指标均值 ={' '}
+                            {scoredIndCount} 项二级指标均值 ={' '}
                             <span className="font-medium tabular-nums text-foreground">
                               {(d.indicator_avg ?? d.score ?? 0).toFixed(1)}
                             </span>
