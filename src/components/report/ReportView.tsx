@@ -26,6 +26,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { annotationApi, apiDownload, ApiError, type StoredReport } from '@/lib/api/client';
 import { SOURCE_LABEL } from '@/lib/evaluation/types';
+import { pickBehaviors } from '@/lib/evaluation/behavior-library';
 import type { DimMeta } from '@/components/annotation/DimensionScores';
 import type {
   InteractionEdge,
@@ -328,6 +329,16 @@ export default function ReportView({
   const insufficientBasis = availableSourceCount <= 1;
   const events = [...(ann?.events ?? [])].sort((a, b) => (a.time_sec ?? 0) - (b.time_sec ?? 0));
   const seating = ann?.seating;
+  // 本课薄弱维度：score 非空、升序取 2 个；若其中存在 score < 7 的则取 3 个。
+  // 与 report-commentary 的 weakDims 口径一致，保证「评语里提的」和「这里推荐的」是同一批。
+  const weakDims = useMemo(() => {
+    const ranked = result.dimension_results
+      .filter((d) => d.score !== null && d.score !== undefined)
+      .sort((a, b) => (a.score as number) - (b.score as number));
+    return ranked.slice(0, ranked.some((d) => (d.score as number) < 7) ? 3 : 2).map((d) => d.dimension_code);
+  }, [result]);
+  // 结果为空（如五维均分高、无低分维度）时整块不渲染
+  const recommended = useMemo(() => pickBehaviors(weakDims, 3), [weakDims]);
   const commentary = result.ai_commentary;
   const lessonTypeEval = result.lesson_type_eval ?? null;
 
@@ -559,6 +570,24 @@ export default function ReportView({
                       <li key={i} className="flex gap-1.5 text-xs leading-relaxed text-foreground/85">
                         <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-amber-400" />
                         <span>{sg}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {recommended.length > 0 && (
+                <div className="rounded-lg border border-blue-200/70 bg-blue-50/60 p-3">
+                  <div className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-blue-800">
+                    <ListChecks className="h-3.5 w-3.5" /> 本课适用行为
+                  </div>
+                  <ul className="space-y-1.5">
+                    {recommended.map((b) => (
+                      <li key={b.code} className="text-xs leading-relaxed">
+                        <span className="font-medium text-foreground/90">
+                          {b.code} {b.name}
+                        </span>
+                        <span className="text-foreground/85"> · {b.operating}</span>
+                        <span className="block text-muted-foreground">{b.mechanism}</span>
                       </li>
                     ))}
                   </ul>
