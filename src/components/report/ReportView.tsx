@@ -342,6 +342,18 @@ export default function ReportView({
   const commentary = result.ai_commentary;
   const lessonTypeEval = result.lesson_type_eval ?? null;
 
+  // 一句话结论卡：从 summary 切出结论句（第一句短于 10 字则连第二句），最该改的一件事取可执行动作兜底改进建议。
+  const conclusionLine = (() => {
+    const s = commentary?.summary;
+    if (!s) return '';
+    const parts = s.split('。').map((x) => x.trim()).filter(Boolean);
+    if (parts.length === 0) return '';
+    let line = parts[0];
+    if (parts[0].length < 10 && parts[1]) line = `${parts[0]}。${parts[1]}`;
+    return line;
+  })();
+  const actionLine = commentary?.action_items?.[0] ?? commentary?.suggestions?.[0] ?? '';
+
   // P0-3：证据渲染抽成一处——五维卡只留分数与对账，证据独立成章复用同一渲染。
   const renderEvidence = (d: (typeof result.dimension_results)[number]) => {
     const groups = d.source_scores.filter((s) => s.evidences.length > 0);
@@ -476,6 +488,19 @@ export default function ReportView({
           '如果只改一处，改哪里最划算？',
         ]}
       />
+      {/* 一句话结论卡：三十秒先定调，完整依据见下文四章 */}
+      {commentary && (
+        <div className="rounded-lg border-l-4 border-primary bg-muted/30 px-3 py-2.5">
+          <p className="text-sm font-medium leading-relaxed text-foreground">{conclusionLine}</p>
+          {actionLine && (
+            <p className="mt-1.5 text-xs leading-relaxed text-foreground/80">
+              <span className="font-medium">先改这一处：</span>
+              {actionLine}
+            </p>
+          )}
+          <p className="mt-1.5 text-[11px] text-muted-foreground">完整依据见下文四章</p>
+        </div>
+      )}
       <EssenceOnePager report={result} />
 
       {/* 综合分 + 雷达 */}
@@ -523,18 +548,6 @@ export default function ReportView({
           <span>本报告有 {reviewCount} 个维度存在多源分歧，已在分析页标记待复核；可由教研员人工终裁后重新生成。</span>
         </div>
       )}
-
-      <SectionHead
-        n="2"
-        id="sec-dims"
-        title="五维拆开看"
-        hint="这一节回答「五个维度各几分、这一维到底表现得怎么样、下一步怎么改」。"
-        questions={[
-          '这个维度表现得怎么样？',
-          '地图里哪几格是空的？为什么空？',
-          '哪些维度还需要老师人工再确认一遍？',
-        ]}
-      />
 
       {/* AI 教学评语（AI 生成，仅作参考，不改变评分） */}
       {commentary && (
@@ -601,37 +614,17 @@ export default function ReportView({
         </Card>
       )}
 
-      {/* 课型专属要点评价（手册 91 要点，按课型加载）；未生成时固定占位，避免区块凭空消失 */}
-      {lessonTypeEval ? (
-        <div className="break-inside-avoid">
-          <LessonTypeEvalView eval={lessonTypeEval} />
-        </div>
-      ) : (
-        <Card className="shadow-card">
-          <CardContent className="py-6 text-center text-xs text-muted-foreground">
-            本课例未生成课型要点评价：未指定课型，或运行分析时未开启 AI 深度分析。
-          </CardContent>
-        </Card>
-      )}
-
-      {/* 表一内涵评价：认知 11 指标 + 情感 8 指标，57 个细化观察点；未生成时固定占位 */}
-      {result.essence_eval?.llm_used ? (
-        <div className="break-inside-avoid">
-          <EssenceEvalView
-            eval={result.essence_eval}
-            lessonId={offlineSample ? '' : lessonId}
-            genKey={result.generated_at}
-            existing={result.essence_interpretations ?? null}
-            enabled={!offlineSample && result.ai_meta?.enabled !== false}
-          />
-        </div>
-      ) : (
-        <Card className="shadow-card">
-          <CardContent className="py-6 text-center text-xs text-muted-foreground">
-            本课例未生成认知·情感观察点：需包含课堂转写文稿并开启 AI 深度分析后运行；AI 繁忙时可稍后重试。
-          </CardContent>
-        </Card>
-      )}
+      <SectionHead
+        n="2"
+        id="sec-dims"
+        title="五维拆开看"
+        hint="这一节回答「五个维度各几分、这一维到底表现得怎么样、下一步怎么改」。"
+        questions={[
+          '这个维度表现得怎么样？',
+          '地图里哪几格是空的？为什么空？',
+          '哪些维度还需要老师人工再确认一遍？',
+        ]}
+      />
 
       {/* 五维得分条 + 证据联动 */}
       <Card id="full-evidence" className="shadow-card scroll-mt-20">
@@ -733,6 +726,38 @@ export default function ReportView({
           </div>
         </CardContent>
       </Card>
+
+      {/* 课型专属要点评价（手册 91 要点，按课型加载）；未生成时固定占位，避免区块凭空消失 */}
+      {lessonTypeEval ? (
+        <div className="break-inside-avoid">
+          <LessonTypeEvalView eval={lessonTypeEval} />
+        </div>
+      ) : (
+        <Card className="shadow-card">
+          <CardContent className="py-6 text-center text-xs text-muted-foreground">
+            本课例未生成课型要点评价：未指定课型，或运行分析时未开启 AI 深度分析。
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 表一内涵评价：认知 11 指标 + 情感 8 指标，57 个细化观察点；未生成时固定占位 */}
+      {result.essence_eval?.llm_used ? (
+        <div className="break-inside-avoid">
+          <EssenceEvalView
+            eval={result.essence_eval}
+            lessonId={offlineSample ? '' : lessonId}
+            genKey={result.generated_at}
+            existing={result.essence_interpretations ?? null}
+            enabled={!offlineSample && result.ai_meta?.enabled !== false}
+          />
+        </div>
+      ) : (
+        <Card className="shadow-card">
+          <CardContent className="py-6 text-center text-xs text-muted-foreground">
+            本课例未生成认知·情感观察点：需包含课堂转写文稿并开启 AI 深度分析后运行；AI 繁忙时可稍后重试。
+          </CardContent>
+        </Card>
+      )}
 
       {/* P0-3 证据独立成章：每条分的原文出处，点任意一条回到课堂现场 */}
       <Card className="shadow-card">
