@@ -153,3 +153,63 @@ create policy annotations_org_read on public.annotations for select
       and ((l.visibility = 'org' and l.org_id in (select my_org_ids()))
            or (l.org_id in (select my_leader_org_ids())))
   ));
+
+-- ---------- reports ----------
+alter table public.reports enable row level security;
+grant select, insert, update, delete, references, trigger, truncate on public.reports to anon, authenticated, service_role;
+
+drop policy if exists reports_select_own on public.reports;
+create policy reports_select_own on public.reports for select
+  using (auth.uid()::text = user_id);
+drop policy if exists reports_insert_own on public.reports;
+create policy reports_insert_own on public.reports for insert
+  with check (auth.uid()::text = user_id);
+drop policy if exists reports_update_own on public.reports;
+create policy reports_update_own on public.reports for update
+  using (auth.uid()::text = user_id)
+  with check (auth.uid()::text = user_id);
+drop policy if exists reports_delete_own on public.reports;
+create policy reports_delete_own on public.reports for delete
+  using (auth.uid()::text = user_id);
+drop policy if exists reports_org_read on public.reports;
+create policy reports_org_read on public.reports for select
+  using (exists (
+    select 1 from lessons l
+    where l.id = reports.lesson_id
+      and ((l.visibility = 'org' and l.org_id in (select my_org_ids()))
+           or (l.org_id in (select my_leader_org_ids())))
+  ));
+
+-- ---------- standard_sets ----------
+alter table public.standard_sets enable row level security;
+grant select, insert, update, delete, references, trigger, truncate on public.standard_sets to anon, authenticated, service_role;
+
+-- 启用行全员可读；未启用行仅 owner 可读
+drop policy if exists standard_sets_read on public.standard_sets;
+create policy standard_sets_read on public.standard_sets for select
+  using (is_active = true or auth.uid()::text = owner_id);
+drop policy if exists standard_sets_insert_own on public.standard_sets;
+create policy standard_sets_insert_own on public.standard_sets for insert
+  with check (auth.uid()::text = owner_id or (scope = 'builtin' and owner_id is null));
+drop policy if exists standard_sets_update_own on public.standard_sets;
+create policy standard_sets_update_own on public.standard_sets for update
+  using (auth.uid()::text = owner_id or (scope = 'builtin' and owner_id is null))
+  with check (auth.uid()::text = owner_id or (scope = 'builtin' and owner_id is null));
+drop policy if exists standard_sets_delete_own on public.standard_sets;
+create policy standard_sets_delete_own on public.standard_sets for delete
+  using (auth.uid()::text = owner_id);
+
+-- ---------- profiles ----------
+alter table public.profiles enable row level security;
+grant select, insert, update, delete, references, trigger, truncate on public.profiles to anon, authenticated, service_role;
+
+drop policy if exists profiles_select_own on public.profiles;
+create policy profiles_select_own on public.profiles for select
+  using (auth.uid()::text = id);
+drop policy if exists profiles_insert_own on public.profiles;
+create policy profiles_insert_own on public.profiles for insert
+  with check (auth.uid()::text = id);
+drop policy if exists profiles_update_own on public.profiles;
+create policy profiles_update_own on public.profiles for update
+  using (auth.uid()::text = id)
+  with check (auth.uid()::text = id);
