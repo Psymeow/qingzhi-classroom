@@ -600,7 +600,7 @@ export default function ReportView({
                     {recommended.map((b) => (
                       <li key={b.code} className="text-xs leading-relaxed">
                         <span className="font-medium text-foreground/90">
-                          {b.code} {b.name}
+                          {b.name}
                         </span>
                         <span className="text-foreground/85"> · {b.operating}</span>
                         <span className="block text-muted-foreground">{b.mechanism}</span>
