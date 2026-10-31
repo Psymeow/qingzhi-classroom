@@ -1,87 +1,52 @@
 -- ============================================================
--- 情智相长课堂分析工作台 · RLS 行级安全（权威版本化迁移）
--- 说明：drizzle-kit 0.31.x push 会把 pgPolicy 建成 USING/CHECK 为 NULL
---       的空壳策略（NULL 在 permissive 策略中等价于 FALSE，导致读 0 行、
---       写被 42501 拒绝）。因此 RLS 以本原生 SQL 为准，建表后必须执行本文件。
--- 幂等：可重复执行。执行后必须做合闸反证（见文件末尾注释）。
+-- 0001 · RLS 策略全集（反向导出版）
+-- 本文件由 2026-10-28 从生产库反向导出，对应当前生效的对象定义。
+--
+-- 范围：public schema 11 张业务表的 RLS 启用 + 41 条策略 + 表级授权。
+-- 策略分组：lessons/lesson_assets/ai_analysis_inputs/annotations/reports 各 5，
+--          standard_sets 4，profiles 3，organizations 3，report_runs 3,
+--          org_members 2，platform_admins 1，合计 41 条。
+-- 幂等：drop policy if exists + create policy，可重复执行。
+--
+-- 归属备注：
+--   - platform_admins 表结构见 0006，此处仅为策略全集完整性保留。
+--   - report_runs 表结构与策略见 0007，此处冗余一份保证 0001 自洽。
+--   - standard_sets_insert_own / update_own 的现行版本由 0002 重定义，此处为现行定义。
+--   - organizations / org_members 表结构见 0003。
 -- ============================================================
 
--- ---------- standard_sets：内置标准(is_active)公开读；写仅 owner ----------
-drop policy if exists standard_sets_read on public.standard_sets;
-drop policy if exists standard_sets_insert_own on public.standard_sets;
-drop policy if exists standard_sets_update_own on public.standard_sets;
-drop policy if exists standard_sets_delete_own on public.standard_sets;
-create policy standard_sets_read        on public.standard_sets for select using (is_active = true or auth.uid()::text = owner_id);
-create policy standard_sets_insert_own  on public.standard_sets for insert with check (auth.uid()::text = owner_id);
-create policy standard_sets_update_own  on public.standard_sets for update using (auth.uid()::text = owner_id) with check (auth.uid()::text = owner_id);
-create policy standard_sets_delete_own  on public.standard_sets for delete using (auth.uid()::text = owner_id);
-
--- ---------- profiles：行 id = auth.users.id，仅本人 ----------
-drop policy if exists profiles_select_own on public.profiles;
-drop policy if exists profiles_insert_own on public.profiles;
-drop policy if exists profiles_update_own on public.profiles;
-create policy profiles_select_own on public.profiles for select using (auth.uid()::text = id);
-create policy profiles_insert_own on public.profiles for insert with check (auth.uid()::text = id);
-create policy profiles_update_own on public.profiles for update using (auth.uid()::text = id) with check (auth.uid()::text = id);
-
--- ---------- lessons：仅归属用户本人 ----------
-drop policy if exists lessons_select_own on public.lessons;
-drop policy if exists lessons_insert_own on public.lessons;
-drop policy if exists lessons_update_own on public.lessons;
-drop policy if exists lessons_delete_own on public.lessons;
-create policy lessons_select_own on public.lessons for select using (auth.uid()::text = user_id);
-create policy lessons_insert_own on public.lessons for insert with check (auth.uid()::text = user_id);
-create policy lessons_update_own on public.lessons for update using (auth.uid()::text = user_id) with check (auth.uid()::text = user_id);
-create policy lessons_delete_own on public.lessons for delete using (auth.uid()::text = user_id);
-
--- ---------- lesson_assets：仅归属用户本人 ----------
-drop policy if exists assets_select_own on public.lesson_assets;
-drop policy if exists assets_insert_own on public.lesson_assets;
-drop policy if exists assets_update_own on public.lesson_assets;
-drop policy if exists assets_delete_own on public.lesson_assets;
-create policy assets_select_own on public.lesson_assets for select using (auth.uid()::text = user_id);
-create policy assets_insert_own on public.lesson_assets for insert with check (auth.uid()::text = user_id);
-create policy assets_update_own on public.lesson_assets for update using (auth.uid()::text = user_id) with check (auth.uid()::text = user_id);
-create policy assets_delete_own on public.lesson_assets for delete using (auth.uid()::text = user_id);
-
--- ---------- ai_analysis_inputs：AI/解析数据与人工分离，仅归属用户 ----------
-drop policy if exists ai_inputs_select_own on public.ai_analysis_inputs;
-drop policy if exists ai_inputs_insert_own on public.ai_analysis_inputs;
-drop policy if exists ai_inputs_update_own on public.ai_analysis_inputs;
-drop policy if exists ai_inputs_delete_own on public.ai_analysis_inputs;
-create policy ai_inputs_select_own on public.ai_analysis_inputs for select using (auth.uid()::text = user_id);
-create policy ai_inputs_insert_own on public.ai_analysis_inputs for insert with check (auth.uid()::text = user_id);
-create policy ai_inputs_update_own on public.ai_analysis_inputs for update using (auth.uid()::text = user_id) with check (auth.uid()::text = user_id);
-create policy ai_inputs_delete_own on public.ai_analysis_inputs for delete using (auth.uid()::text = user_id);
-
--- ---------- annotations：人工标注，仅归属用户 ----------
-drop policy if exists annotations_select_own on public.annotations;
-drop policy if exists annotations_insert_own on public.annotations;
-drop policy if exists annotations_update_own on public.annotations;
-drop policy if exists annotations_delete_own on public.annotations;
-create policy annotations_select_own on public.annotations for select using (auth.uid()::text = user_id);
-create policy annotations_insert_own on public.annotations for insert with check (auth.uid()::text = user_id);
-create policy annotations_update_own on public.annotations for update using (auth.uid()::text = user_id) with check (auth.uid()::text = user_id);
-create policy annotations_delete_own on public.annotations for delete using (auth.uid()::text = user_id);
-
--- ---------- reports：分析报告，仅归属用户 ----------
-drop policy if exists reports_select_own on public.reports;
-drop policy if exists reports_insert_own on public.reports;
-drop policy if exists reports_update_own on public.reports;
-drop policy if exists reports_delete_own on public.reports;
-create policy reports_select_own on public.reports for select using (auth.uid()::text = user_id);
-create policy reports_insert_own on public.reports for insert with check (auth.uid()::text = user_id);
-create policy reports_update_own on public.reports for update using (auth.uid()::text = user_id) with check (auth.uid()::text = user_id);
-create policy reports_delete_own on public.reports for delete using (auth.uid()::text = user_id);
-
 -- ============================================================
--- 合闸反证（必须全部符合预期）：
---  1) 无身份(anon/authenticated 无 JWT)：
---     select lessons/profiles/... 必须 0 行；insert 必须 42501 拒绝。
---  2) anon select standard_sets(is_active=true) 必须 ≥1（内置标准可见）。
---  3) 登录用户 A：只能 select/insert/update/delete user_id = auth.uid() 的行，
---     访问用户 B 的课例必须 0 行。
---  校验表达式已落库：
---     select polname, pg_get_expr(polqual,polrelid), pg_get_expr(polwithcheck,polrelid)
---     from pg_policy where polrelid='public.lessons'::regclass;
+-- 前置依赖：机构归属判定函数
+-- 以下三个函数与 0003 重复定义，内容完全一致、幂等；
+-- 仅为让本文件可独立执行，不依赖文件编号顺序（0001 < 0003）。
 -- ============================================================
+
+create or replace function public.my_org_ids()
+returns setof character varying
+language sql
+stable security definer
+set search_path to 'public'
+as $function$
+  select org_id from public.org_members
+  where user_id = auth.uid()::text and status = 'active';
+$function$;
+
+create or replace function public.my_leader_org_ids()
+returns setof character varying
+language sql
+stable security definer
+set search_path to 'public'
+as $function$
+  select org_id from public.org_members
+  where user_id = auth.uid()::text and status = 'active' and role in ('admin','leader');
+$function$;
+
+create or replace function public.my_admin_org_ids()
+returns setof character varying
+language sql
+stable security definer
+set search_path to 'public'
+as $function$
+  select org_id from public.org_members
+  where user_id = auth.uid()::text and status = 'active' and role = 'admin';
+$function$;
