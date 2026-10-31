@@ -101,3 +101,55 @@ create policy assets_org_read on public.lesson_assets for select
       and ((l.visibility = 'org' and l.org_id in (select my_org_ids()))
            or (l.org_id in (select my_leader_org_ids())))
   ));
+
+-- ---------- ai_analysis_inputs ----------
+alter table public.ai_analysis_inputs enable row level security;
+grant select, insert, update, delete, references, trigger, truncate on public.ai_analysis_inputs to anon, authenticated, service_role;
+
+drop policy if exists ai_inputs_select_own on public.ai_analysis_inputs;
+create policy ai_inputs_select_own on public.ai_analysis_inputs for select
+  using (auth.uid()::text = user_id);
+drop policy if exists ai_inputs_insert_own on public.ai_analysis_inputs;
+create policy ai_inputs_insert_own on public.ai_analysis_inputs for insert
+  with check (auth.uid()::text = user_id);
+drop policy if exists ai_inputs_update_own on public.ai_analysis_inputs;
+create policy ai_inputs_update_own on public.ai_analysis_inputs for update
+  using (auth.uid()::text = user_id)
+  with check (auth.uid()::text = user_id);
+drop policy if exists ai_inputs_delete_own on public.ai_analysis_inputs;
+create policy ai_inputs_delete_own on public.ai_analysis_inputs for delete
+  using (auth.uid()::text = user_id);
+drop policy if exists ai_inputs_org_read on public.ai_analysis_inputs;
+create policy ai_inputs_org_read on public.ai_analysis_inputs for select
+  using (exists (
+    select 1 from lessons l
+    where l.id = ai_analysis_inputs.lesson_id
+      and ((l.visibility = 'org' and l.org_id in (select my_org_ids()))
+           or (l.org_id in (select my_leader_org_ids())))
+  ));
+
+-- ---------- annotations ----------
+alter table public.annotations enable row level security;
+grant select, insert, update, delete, references, trigger, truncate on public.annotations to anon, authenticated, service_role;
+
+drop policy if exists annotations_select_own on public.annotations;
+create policy annotations_select_own on public.annotations for select
+  using (auth.uid()::text = user_id);
+drop policy if exists annotations_insert_own on public.annotations;
+create policy annotations_insert_own on public.annotations for insert
+  with check (auth.uid()::text = user_id);
+drop policy if exists annotations_update_own on public.annotations;
+create policy annotations_update_own on public.annotations for update
+  using (auth.uid()::text = user_id)
+  with check (auth.uid()::text = user_id);
+drop policy if exists annotations_delete_own on public.annotations;
+create policy annotations_delete_own on public.annotations for delete
+  using (auth.uid()::text = user_id);
+drop policy if exists annotations_org_read on public.annotations;
+create policy annotations_org_read on public.annotations for select
+  using (exists (
+    select 1 from lessons l
+    where l.id = annotations.lesson_id
+      and ((l.visibility = 'org' and l.org_id in (select my_org_ids()))
+           or (l.org_id in (select my_leader_org_ids())))
+  ));
