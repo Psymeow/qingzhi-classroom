@@ -112,7 +112,7 @@ export default function ScaleBar({
                 </span>
               )}
               {typeof pending === 'number' && pending > 0 && (
-                <span className="text-amber-700">{pending} 项待补</span>
+                <span className="text-amber-700">{pending} 项未评</span>
               )}
             </>
           ) : (

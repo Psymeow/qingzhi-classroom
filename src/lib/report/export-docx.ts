@@ -730,12 +730,22 @@ function renderDimension(
       rows.push([
         bodyCell(indicatorName(ind.indicator_code, ind.name)),
         bodyCell(fmt(ind.score), { bold: true, color: scoreHex(ind.score), align: AlignmentType.CENTER }),
-        // 「评分状态」说的是这份分数的处理状态，不是课堂表现好坏：
-        // 正常→已评估、待复核→待复核、无评分依据→材料待补，避免教师把「正常」读成「表现正常」
-        bodyCell(ind.score === null ? '材料待补' : ind.need_review ? '待复核' : '已评估', {
-          color: ind.score === null ? MUTED : ind.need_review ? 'B45309' : '047857',
-          align: AlignmentType.CENTER,
-        }),
+        // 「评分状态」说的是这份分数的处理状态，不是课堂表现好坏。
+        // 四态优先级：缺材料 → 有材料但无表现证据 → 多源分歧待复核 → 已评估。
+        // score 为 null 但两个标记都没有时（旧报告数据）兜底为材料待补，保持旧行为。
+        bodyCell(
+          ind.missing_material
+            ? '材料待补'
+            : ind.no_evidence
+              ? '无相关表现'
+              : ind.need_review
+                ? '待复核'
+                : '已评估',
+          {
+            color: ind.missing_material || ind.no_evidence ? MUTED : ind.need_review ? 'B45309' : '047857',
+            align: AlignmentType.CENTER,
+          },
+        ),
       ]);
     });
     out.push(table([5200, 1800, 3000], rows));
@@ -835,11 +845,20 @@ function renderEssenceDomain(
   });
   out.push(table([5000, 2500, 1800], rows));
 
-  // 观察点明细：只列有分或有说明的，缺失材料单独提示
-  const missing = domain.indicators.flatMap((i) => i.points).filter((x) => x.missing_material);
-  if (missing.length) {
+  // 观察点未评有两种成因，分开说明：只合并成一句会让教师对不上数
+  // （例：57 点里 10 个未评，却只被告知 5 个缺材料，另 5 个去向不明）
+  const allPoints = domain.indicators.flatMap((i) => i.points);
+  const missingMaterial = allPoints.filter((x) => x.missing_material).length;
+  const noEvidence = allPoints.filter((x) => x.score === null && !x.missing_material).length;
+  if (missingMaterial > 0 || noEvidence > 0) {
     out.push(new Paragraph({ spacing: { before: 120, after: 0 }, children: [] }));
-    out.push(notice(`${missing.length} 个观察点因本次未提交对应材料而无法评价（如仅交转写文稿时，任务单/观察表专属点不可评），已从均分中剔除。`, 'EFF6FF', '1D4ED8'));
+    if (missingMaterial > 0) {
+      out.push(notice(`${missingMaterial} 个观察点因本次未提交对应材料而无法评价（如仅交转写文稿时，任务单/观察表专属点不可评），已从均分中剔除。`, 'EFF6FF', '1D4ED8'));
+    }
+    if (noEvidence > 0) {
+      out.push(new Paragraph({ spacing: { before: 60, after: 0 }, children: [] }));
+      out.push(notice(`${noEvidence} 个观察点本次未发现相关课堂表现，已留空并从均分中剔除。`, 'EFF6FF', '1D4ED8'));
+    }
   }
 
   return out;

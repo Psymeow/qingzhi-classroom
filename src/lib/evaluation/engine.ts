@@ -170,13 +170,20 @@ function indicatorScore(
   code: string,
   hits: MatchHit[],
   llm?: LlmScoreMap,
-): { score: number | null; evidences: string[]; confidence: number } {
+): { score: number | null; evidences: string[]; confidence: number; no_evidence?: boolean } {
   const ai = llm?.[code];
   if (ai) {
     if (ai.score === null || !Number.isFinite(ai.score)) {
-      return { score: null, evidences: [], confidence: 0 };
+      return { score: null, evidences: [], confidence: 0, no_evidence: false };
     }
     const evidences = ai.evidences.length ? ai.evidences : ai.reason ? [ai.reason] : [];
+    // 0 分必须有证据支撑才算数：模型常把「无证据」误写成 score: 0（prompt 已禁止但不保证），
+    // 若照单全收会把本该留空的项算成 0 进入均分，把维度分与综合分一起拉低。
+    // 判定依据是最终产出的 evidences（含 reason 兜底），不是裸的 ai.evidences——
+    // 有 reason 就说明模型给了理由，属于「表现确实未达成」而非「没找到相关表现」。
+    if (clamp10(ai.score) === 0 && evidences.length === 0) {
+      return { score: null, evidences: [], confidence: 0, no_evidence: true };
+    }
     return { score: clamp10(ai.score), evidences, confidence: 0.75 };
   }
   return scoreFromHits(code, hits);
@@ -538,10 +545,18 @@ export function analyzeLesson(input: EngineInput): AnalysisReport {
     const indicators: IndicatorResult[] = indicatorsOf(std, dim.code).map((ind) => {
       const t = indicatorScore(ind.code, hits, input.llmScores?.av);
       const o = indicatorScore(ind.code, observerHits, input.llmScores?.observer);
+      // 任务单链同样受 0 分无证据守卫约束，与转写/观察两条链一致
+      const tsRaw = input.taskSheetScores?.[ind.code];
+      const tsScore =
+        typeof tsRaw?.score === 'number' && Number.isFinite(tsRaw.score)
+          ? clamp10(tsRaw.score)
+          : null;
+      const tsEvidence = tsRaw?.evidences ?? [];
+      const tsNoEvidence = tsScore === 0 && tsEvidence.length === 0;
       const src: SourceScore[] = [
         { source: "av_transcript", score: t.score, evidences: t.evidences, confidence: t.confidence },
         { source: "observer_note", score: o.score, evidences: o.evidences, confidence: o.confidence },
-        { source: "task_sheet", score: input.taskSheetScores?.[ind.code]?.score ?? null, evidences: input.taskSheetScores?.[ind.code]?.evidences ?? [], confidence: 0 },
+        { source: "task_sheet", score: tsNoEvidence ? null : tsScore, evidences: tsEvidence, confidence: 0 },
         { source: "manual_annotation", score: null, evidences: [], confidence: 0 },
       ];
       const valid = src.filter((s) => s.score !== null);
@@ -551,7 +566,29 @@ export function analyzeLesson(input: EngineInput): AnalysisReport {
         ? round1(valid.reduce((a, b) => a + (b.score as number) * (weights[b.source] || 0), 0) /
             valid.reduce((a, b) => a + (weights[b.source] || 0), 0) || 0)
         : null;
-      return { indicator_code: ind.code, name: ind.name, score, need_review: needReview, source_scores: src };
+      // 任一链触发 0 分无证据守卫即标记；缺材料则按来源齐备性标记，供状态列区分
+      const noEvidence = t.no_evidence === true || o.no_evidence === true || tsNoEvidence;
+      // 缺材料判定与观察点级 V1.9d 同口径：该指标所需材料一种都没交才算，
+      // 只要有一路在手就仍属「有材料」——避免把「材料在但没找到表现」误标成缺材料。
+      // PointSource(av/observer/task_sheet) 与 DataSource(五路) 命名不同，只映射三者共有项
+      const ptToSource: Record<string, DataSource> = {
+        av: 'av_transcript',
+        observer: 'observer_note',
+        task_sheet: 'task_sheet',
+      };
+      const ptSources = ind.observation_points.flatMap((pt) => pt.sources ?? []);
+      const missingMaterial =
+        ptSources.length > 0 &&
+        !ptSources.some((sc) => source_availability[ptToSource[sc]]);
+      return {
+        indicator_code: ind.code,
+        name: ind.name,
+        score,
+        need_review: needReview,
+        source_scores: src,
+        ...(noEvidence ? { no_evidence: true } : {}),
+        ...(missingMaterial ? { missing_material: true } : {}),
+      };
     });
 
     // ---- 分数对账（V1.8）：维度分优先由其下二级指标聚合，保证老师可自行验算 ----

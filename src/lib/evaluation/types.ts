@@ -165,11 +165,19 @@ export interface IndicatorResult {
   indicator_code: string;
   /** 二级指标名（V1.13 起写入；旧报告可能缺失，展示侧回退到指标编码） */
   name?: string;
-  /** 融合后 0-10 */
+  /** 融合后 0-10；null 表示本次无可评分来源 */
   score: number | null;
   /** 是否存在多源冲突需人工复核 */
   need_review: boolean;
   source_scores: SourceScore[];
+  /**
+   * 有材料但模型未找到相关课堂表现（score 为 0 且无任何证据支撑）。
+   * 与「缺材料」不同：那种是没交任务单/观察表，这种是交了但没找到对应表现。
+   * 仅由 engine 的 0 分守卫置 true，旧报告缺省。
+   */
+  no_evidence?: boolean;
+  /** 该指标所需材料本次一种都没交（由 source_availability 汇总，供状态列区分） */
+  missing_material?: boolean;
 }
 
 /** 维度融合结果 */
