@@ -80,6 +80,64 @@ function buildDigest(report: AnalysisReport, std: RubricStandard): string {
     if (weakPoints.length) lines.push(`- 偏弱观察指标：${weakPoints.join('、')}`);
   }
 
+  // —— 全局弱项/强项清单：让建议严格按分数从低到高取材，避开最强项 ——
+  // 五维二级指标与情智观察点指标两套 score 均为 0-10 同制式，可统一排序、按 code 去重。
+  // 弱项：五维升序前 6 + 情智升序前 6，合并统一升序、去重后最多 10 条；
+  // 强项：全量（两套并集）降序、去重后取最高 3 条。
+  type ScoredItem = { code: string; label: string; score: number };
+  const byScoreAsc = (a: ScoredItem, b: ScoredItem) =>
+    a.score - b.score || a.code.localeCompare(b.code);
+
+  const primaryItems: ScoredItem[] = [];
+  const essenceItems: ScoredItem[] = [];
+  for (const d of report.dimension_results) {
+    for (const i of d.indicators) {
+      if (i.score !== null && i.score !== undefined) {
+        primaryItems.push({
+          code: i.indicator_code,
+          label: i.name ?? i.indicator_code,
+          score: i.score,
+        });
+      }
+    }
+  }
+  if (ess?.llm_used) {
+    for (const i of [...ess.cognitive.indicators, ...ess.affective.indicators]) {
+      if (i.score !== null && i.score !== undefined) {
+        essenceItems.push({ code: i.code, label: i.name, score: i.score });
+      }
+    }
+  }
+
+  const weakCandidates = [
+    ...[...primaryItems].sort(byScoreAsc).slice(0, 6),
+    ...[...essenceItems].sort(byScoreAsc).slice(0, 6),
+  ].sort(byScoreAsc);
+
+  const weakList: ScoredItem[] = [];
+  const seenWeak = new Set<string>();
+  for (const it of weakCandidates) {
+    if (seenWeak.has(it.code)) continue;
+    seenWeak.add(it.code);
+    weakList.push(it);
+    if (weakList.length >= 10) break;
+  }
+
+  if (weakList.length) {
+    lines.push('', '【全局最弱指标】');
+    for (const it of weakList) lines.push(`- ${it.label}(${it.score})`);
+  }
+
+  const strongList = [...primaryItems, ...essenceItems]
+    .sort((a, b) => b.score - a.score || a.code.localeCompare(b.code))
+    .filter((it, idx, arr) => arr.findIndex((x) => x.code === it.code) === idx)
+    .slice(0, 3);
+
+  if (strongList.length) {
+    lines.push('', '【本课最强指标】');
+    for (const it of strongList) lines.push(`- ${it.label}(${it.score})`);
+  }
+
   return lines.join('\n');
 }
 
@@ -134,11 +192,11 @@ export async function generateCommentary(
               ]
             : []),
           '【写作要求】',
-          '1. summary：总体结论，2-4 句，先说整体水平与最突出的特征，再点出最值得继续投入的一两个方向。',
+          '1. summary：总体结论，2-4 句，先说整体水平与最突出的特征，再点出最值得继续投入的一两个方向。若综合得分低于 60 / 100，须直接说明「本课整体得分偏低」，不使用「中等水平」这类模糊表述。',
           '2. highlights：课堂亮点，2-4 条，每条一句话，须与高分维度/指标对应。',
-          '3. suggestions：教学改进建议，2-4 条，每条一句话，须针对得分较低的维度/指标给出可落地的做法，并先说明它已经具备的基础，优先从【可选教学行为库】取材。',
+          '3. suggestions：教学改进建议，2-4 条，必须按分数从低到高取材，第一条针对【全局最弱指标】里分数最低的那一项；不对【本课最强指标】中的任何一项提改进建议。',
           '4. essence_coupling：情智关系解读，1-2 句。必须点明「情感体验」与「认知发展」在本节课是怎样互相支撑的（如好奇/安全感支撑了试错与推理），或在哪一环还可以互相助推得更紧（如热闹的参与尚未转化为深度思考）。不要复述分数。',
-          '5. action_items：可执行动作，恰好 3 条，每条一句话，写成下一个课时就能改的具体教学行为（含动作、对象、时长或位置），不要写「加强…」「注重…」这类方向性表述，优先从【可选教学行为库】中选取适配做法。',
+          '5. action_items：可执行动作，恰好 3 条，每条一句话，写成下一个课时就能改的具体教学行为（含动作、对象、时长或位置），不要写「加强…」「注重…」这类方向性表述，优先从【可选教学行为库】中选取适配做法。三条动作应分别对应【全局最弱指标】中三个不同指标，不要集中在同一维度。',
           '6. 全部使用中文，不使用 Markdown 标记，不使用编号前缀。',
           '',
           '严格按以下 JSON 结构输出，不要输出任何其他内容：',
