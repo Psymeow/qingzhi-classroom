@@ -35,6 +35,18 @@ interface Props {
 
 const NONE_VALUE = '__none__';
 
+/**
+ * 各课型的情感主线与首选教学行为（对应 behavior-library 中的行为名称）。
+ * 选中课型时补一句提示，让教师知道「这个课型差异在哪、先从哪几个做法入手」。
+ */
+const TYPE_HINT: Record<string, string> = {
+  new: '好奇→成就 · 首选 认知冲突情境、梯度问题链、结构化小组合作',
+  review: '自主→掌控 · 首选 结构化反思引导、变式题组、分层任务',
+  comment: '反思→优化 · 容错需求最高 · 首选 错误资源化、依据性追问、容错氛围营造',
+  practice: '应用→创造 · 首选 真实问题锚定、结构化小组合作、同伴情感支持',
+  topic: '困惑→贯通 · 首选 驱动性主问题、梯度问题链、困境中的韧性护航',
+};
+
 function confColor(c: number): string {
   if (c >= 0.75) return 'text-emerald-600';
   if (c >= 0.5) return 'text-amber-600';
@@ -153,10 +165,15 @@ export default function LessonTypeBar({ lessonId, onUnauthorized, onChange, init
         </TooltipProvider>
 
         {savingType && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
-        <span className="text-[11px] text-muted-foreground">
+        {/* 选中课型后追加一句情感主线 + 首选行为，让选择有依据；
+            未选课型时不显示；文案允许换行，不固定宽度，避免窄屏溢出 */}
+        <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-[11px] leading-relaxed text-muted-foreground">
           {value
             ? `按「${info?.options.find((o) => o.value === value)?.label ?? value}」加载专属要点集参与 AI 评分`
             : '未指定课型时只输出通用五维评分，不输出课型要点评价'}
+          {value && TYPE_HINT[value] && (
+            <span className="text-muted-foreground/70">· {TYPE_HINT[value]}</span>
+          )}
         </span>
       </div>
 
