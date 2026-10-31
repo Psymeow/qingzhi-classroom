@@ -84,7 +84,12 @@ export default function LessonDetailPage() {
     if (isDetailTab(t)) return t;
     return 'intake';
   });
+
+  // 首屏只 mount 当前标签，访问过后保持挂载（keep-alive）：未访问的标签不发请求，切回来状态不丢。
+  // 初始值必须含 activeTab（它由 URL 参数初始化），否则初始标签渲染不出来。
+  const [visited, setVisited] = useState<Set<DetailTab>>(() => new Set([activeTab]));
   const switchTab = useCallback((t: DetailTab) => {
+    setVisited((v) => (v.has(t) ? v : new Set(v).add(t)));
     setActiveTab(t);
     const url = new URL(window.location.href);
     url.searchParams.set('tab', t);
@@ -389,98 +394,108 @@ export default function LessonDetailPage() {
             </div>
           </div>
 
-          <div role="tabpanel" id="panel-intake" aria-labelledby="tab-intake" hidden={activeTab !== 'intake'}>
-            <DataIntake lessonId={id} onUnauthorized={handleUnauthorized} />
-          </div>
-
-          <div role="tabpanel" id="panel-annotate" aria-labelledby="tab-annotate" hidden={activeTab !== 'annotate'}>
-            <Card className="shadow-card">
-              <CardHeader>
-                <CardTitle className="text-base">人工标注工作台</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {dimensions.length > 0 ? (
-                  <AnnotationWorkbench
-                    lessonId={id}
-                    dimensions={dimensions}
-                    onUnauthorized={handleUnauthorized}
-                  />
-                ) : (
-                  <BlockSkeleton />
-                )}
-              </CardContent>
-            </Card>
-          </div>
-
-          <div role="tabpanel" id="panel-analyze" aria-labelledby="tab-analyze" hidden={activeTab !== 'analyze'}>
-            {/* 窄屏时左列播放器/控制条不常驻，在本板块顶部补一份运行控制条 */}
-            <div className="mb-4 lg:hidden">
-              <AnalysisRunBar runner={analysisRunner} />
-            </div>
-            <Card className="shadow-card">
-              <CardHeader>
-                <CardTitle className="text-base">多源融合分析</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <AnalysisPanel
-                  lessonId={id}
-                  dimensions={dimensions}
-                  onUnauthorized={handleUnauthorized}
-                  runner={analysisRunner}
-                />
-              </CardContent>
-            </Card>
-          </div>
-
-          <div role="tabpanel" id="panel-timeline" aria-labelledby="tab-timeline" hidden={activeTab !== 'timeline'}>
-            {/* lg+ 播放器在中间栏常驻，这里只在窄屏补一个实例，保证小屏也能边看边对时间轴 */}
-            <div className="mb-4 lg:hidden">
-              <LessonPlayer lessonId={id} />
-            </div>
-            <LessonTimeline lessonId={id} result={latestReport?.result ?? null} />
-          </div>
-
-          <div role="tabpanel" id="panel-report" aria-labelledby="tab-report" hidden={activeTab !== 'report'}>
-            <div className="mb-4">
-              <RunHistory
-                lessonId={id}
-                refreshKey={latestReport?.updated_at ?? null}
-                onUnauthorized={handleUnauthorized}
-              />
-            </div>
-            {latestReport ? (
-              <Card className="shadow-card">
-                <CardHeader>
-                  <CardTitle className="text-base">课堂分析报告</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ReportView
-                    report={latestReport}
-                    lessonId={id}
-                    dimensions={dimensions}
-                    indicatorNames={indicatorNames}
-                    lessonTitle={detail.title}
-                    lessonMeta={{
-                      teacher_name: detail.teacher_name,
-                      school: detail.school,
-                      grade_class: detail.grade_class,
-                    }}
-                    onUnauthorized={handleUnauthorized}
-                  />
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="rounded-xl border border-dashed border-border/70 bg-muted/20 px-6 py-12 text-center">
-                <p className="text-sm text-muted-foreground">尚未生成分析报告</p>
-                <p className="mt-1 text-xs text-muted-foreground/80">
-                  完成数据接入与标注后，到「融合分析」运行引擎即可生成可视化报告
-                </p>
-                <Button variant="outline" className="mt-4 rounded-lg" onClick={() => switchTab('analyze')}>
-                  去融合分析
-                </Button>
+    {visited.has('intake') && (
+              <div role="tabpanel" id="panel-intake" aria-labelledby="tab-intake" hidden={activeTab !== 'intake'}>
+                <DataIntake lessonId={id} onUnauthorized={handleUnauthorized} />
               </div>
-            )}
-          </div>
+
+    )}
+    {visited.has('annotate') && (
+              <div role="tabpanel" id="panel-annotate" aria-labelledby="tab-annotate" hidden={activeTab !== 'annotate'}>
+                <Card className="shadow-card">
+                  <CardHeader>
+                    <CardTitle className="text-base">人工标注工作台</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {dimensions.length > 0 ? (
+                      <AnnotationWorkbench
+                        lessonId={id}
+                        dimensions={dimensions}
+                        onUnauthorized={handleUnauthorized}
+                      />
+                    ) : (
+                      <BlockSkeleton />
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+    )}
+    {visited.has('analyze') && (
+              <div role="tabpanel" id="panel-analyze" aria-labelledby="tab-analyze" hidden={activeTab !== 'analyze'}>
+                {/* 窄屏时左列播放器/控制条不常驻，在本板块顶部补一份运行控制条 */}
+                <div className="mb-4 lg:hidden">
+                  <AnalysisRunBar runner={analysisRunner} />
+                </div>
+                <Card className="shadow-card">
+                  <CardHeader>
+                    <CardTitle className="text-base">多源融合分析</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <AnalysisPanel
+                      lessonId={id}
+                      dimensions={dimensions}
+                      onUnauthorized={handleUnauthorized}
+                      runner={analysisRunner}
+                    />
+                  </CardContent>
+                </Card>
+              </div>
+
+    )}
+    {visited.has('timeline') && (
+              <div role="tabpanel" id="panel-timeline" aria-labelledby="tab-timeline" hidden={activeTab !== 'timeline'}>
+                {/* lg+ 播放器在中间栏常驻，这里只在窄屏补一个实例，保证小屏也能边看边对时间轴 */}
+                <div className="mb-4 lg:hidden">
+                  <LessonPlayer lessonId={id} />
+                </div>
+                <LessonTimeline lessonId={id} result={latestReport?.result ?? null} />
+              </div>
+
+    )}
+    {visited.has('report') && (
+              <div role="tabpanel" id="panel-report" aria-labelledby="tab-report" hidden={activeTab !== 'report'}>
+                <div className="mb-4">
+                  <RunHistory
+                    lessonId={id}
+                    refreshKey={latestReport?.updated_at ?? null}
+                    onUnauthorized={handleUnauthorized}
+                  />
+                </div>
+                {latestReport ? (
+                  <Card className="shadow-card">
+                    <CardHeader>
+                      <CardTitle className="text-base">课堂分析报告</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ReportView
+                        report={latestReport}
+                        lessonId={id}
+                        dimensions={dimensions}
+                        indicatorNames={indicatorNames}
+                        lessonTitle={detail.title}
+                        lessonMeta={{
+                          teacher_name: detail.teacher_name,
+                          school: detail.school,
+                          grade_class: detail.grade_class,
+                        }}
+                        onUnauthorized={handleUnauthorized}
+                      />
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-border/70 bg-muted/20 px-6 py-12 text-center">
+                    <p className="text-sm text-muted-foreground">尚未生成分析报告</p>
+                    <p className="mt-1 text-xs text-muted-foreground/80">
+                      完成数据接入与标注后，到「融合分析」运行引擎即可生成可视化报告
+                    </p>
+                    <Button variant="outline" className="mt-4 rounded-lg" onClick={() => switchTab('analyze')}>
+                      去融合分析
+                    </Button>
+                  </div>
+                )}
+              </div>
+    )}
         </div>
       </div>
 

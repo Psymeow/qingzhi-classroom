@@ -19,15 +19,12 @@ import {
   Target,
   Download,
 } from 'lucide-react';
-import {
-  PolarAngleAxis,
-  PolarGrid,
-  PolarRadiusAxis,
-  Radar,
-  RadarChart,
-  ResponsiveContainer,
-  Legend,
-} from 'recharts';
+import dynamic from 'next/dynamic';
+// recharts（约 392KB）改由 CompareRadar 异步加载，首屏不再同步打进教研对比页 chunk。
+const CompareRadar = dynamic(() => import('./CompareCharts'), {
+  ssr: false,
+  loading: () => <div className="h-[260px] w-full" aria-hidden />,
+});
 import { researchApi, ApiError, type LessonDigest, type ResearchInsight } from '@/lib/api/client';
 import {
   buildCompare,
@@ -298,30 +295,11 @@ export default function ResearchComparePage() {
           </CardHeader>
           <CardContent>
             <div className="h-[260px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <RadarChart data={radarData} outerRadius="72%">
-                  <PolarGrid stroke="var(--border)" />
-                  <PolarAngleAxis
-                    dataKey="dim"
-                    tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
-                  />
-                  <PolarRadiusAxis
-                    domain={[0, 10]}
-                    tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }}
-                  />
-                  {digests.map((d, i) => (
-                    <Radar
-                      key={d.lesson_id}
-                      name={seriesName(d, i)}
-                      dataKey={seriesName(d, i)}
-                      stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
-                      fill={SERIES_COLORS[i % SERIES_COLORS.length]}
-                      fillOpacity={0.12}
-                    />
-                  ))}
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
-                </RadarChart>
-              </ResponsiveContainer>
+              <CompareRadar
+                data={radarData}
+                seriesKeys={digests.map((d, i) => seriesName(d, i))}
+                colors={digests.map((_, i) => SERIES_COLORS[i % SERIES_COLORS.length])}
+              />
             </div>
             <p className="mt-1 text-[11px] text-muted-foreground">
               D1 {DIMENSION_META[0]?.name} · D2 {DIMENSION_META[1]?.name} · D3{' '}

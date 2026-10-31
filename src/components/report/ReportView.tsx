@@ -2,14 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import {
-  Radar,
-  RadarChart,
-  PolarGrid,
-  PolarAngleAxis,
-  PolarRadiusAxis,
-  ResponsiveContainer,
-} from 'recharts';
+import dynamic from 'next/dynamic';
+// recharts（约 392KB）改由 ReportRadar 异步加载，首屏不再同步打进课例页 chunk。
+const ReportRadar = dynamic(() => import('@/components/report/ReportRadar'), {
+  ssr: false,
+  loading: () => <div className="h-56 w-full" aria-hidden />,
+});
 import {
   Loader2,
   FileDown,
@@ -499,22 +497,7 @@ export default function ReportView({
           <CardContent className="p-4">
             <div className="mb-1 text-[11px] font-medium text-muted-foreground">图 1-1　五维素养雷达</div>
             <div className="h-56 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <RadarChart data={radarData} outerRadius="72%">
-                  <PolarGrid />
-                  <PolarAngleAxis dataKey="dim" tick={{ fontSize: 11, fill: '#5b5468' }} />
-                  <PolarRadiusAxis domain={[0, 10]} tick={{ fontSize: 9, fill: '#9aa0b0' }} axisLine={false} />
-                  <Radar
-                    name="得分"
-                    dataKey="score"
-                    stroke="#5b54e6"
-                    fill="#5b54e6"
-                    fillOpacity={0.32}
-                    dot={{ r: 3, fill: '#5b54e6', strokeWidth: 0 }}
-                    label={{ position: 'top', fontSize: 11, fontWeight: 600, fill: '#4338ca' }}
-                  />
-                </RadarChart>
-              </ResponsiveContainer>
+              <ReportRadar data={radarData} />
             </div>
           </CardContent>
         </Card>
