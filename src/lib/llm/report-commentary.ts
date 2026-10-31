@@ -1,6 +1,7 @@
 import 'server-only';
 import { LlmError, chatJson, isLlmEnabled, llmModel } from '@/lib/llm/deepseek';
 import { fallbackStandard, subjectLabel } from '@/lib/evaluation/standard-registry';
+import { behaviorHintText } from '@/lib/evaluation/behavior-library';
 import type {
   AiCommentary,
   AnalysisReport,
@@ -100,6 +101,13 @@ export async function generateCommentary(
 ): Promise<AiCommentary> {
   if (!isLlmEnabled()) throw new LlmError('未配置 DEEPSEEK_API_KEY');
 
+  // 薄弱维度：分数非空、升序取 2 个；若其中存在 score < 7 的维度则最多取 3 个。
+  // 只取真正需要改进的方向，不罗列所有低分项（避免建议变成低分清单）。
+  const ranked = report.dimension_results
+    .filter((d) => d.score !== null && d.score !== undefined)
+    .sort((a, b) => (a.score as number) - (b.score as number));
+  const weakDims = ranked.slice(0, ranked.some((d) => (d.score as number) < 7) ? 3 : 2).map((d) => d.dimension_code);
+
   const raw = await chatJson<RawCommentary>(
     [
       {
@@ -117,12 +125,20 @@ export async function generateCommentary(
           '【课堂量化分析报告摘要】',
           buildDigest(report, standard),
           '',
+          // behaviorHintText 无匹配时返回空串，整段省略（不留空标题）
+          ...(behaviorHintText(weakDims)
+            ? [
+                '【可选教学行为库】（已按本课薄弱维度筛选；建议与动作优先从中取材，可结合学情改编，但不要凭空编造行为名称）',
+                behaviorHintText(weakDims),
+                '',
+              ]
+            : []),
           '【写作要求】',
           '1. summary：总体结论，2-4 句，先说整体水平与最突出的特征，再点出最值得继续投入的一两个方向。',
           '2. highlights：课堂亮点，2-4 条，每条一句话，须与高分维度/指标对应。',
-          '3. suggestions：教学改进建议，2-4 条，每条一句话，须针对得分较低的维度/指标给出可落地的做法，并先说明它已经具备的基础。',
+          '3. suggestions：教学改进建议，2-4 条，每条一句话，须针对得分较低的维度/指标给出可落地的做法，并先说明它已经具备的基础，优先从【可选教学行为库】取材。',
           '4. essence_coupling：情智关系解读，1-2 句。必须点明「情感体验」与「认知发展」在本节课是怎样互相支撑的（如好奇/安全感支撑了试错与推理），或在哪一环还可以互相助推得更紧（如热闹的参与尚未转化为深度思考）。不要复述分数。',
-          '5. action_items：可执行动作，恰好 3 条，每条一句话，写成下一个课时就能改的具体教学行为（含动作、对象、时长或位置），不要写「加强…」「注重…」这类方向性表述。',
+          '5. action_items：可执行动作，恰好 3 条，每条一句话，写成下一个课时就能改的具体教学行为（含动作、对象、时长或位置），不要写「加强…」「注重…」这类方向性表述，优先从【可选教学行为库】中选取适配做法。',
           '6. 全部使用中文，不使用 Markdown 标记，不使用编号前缀。',
           '',
           '严格按以下 JSON 结构输出，不要输出任何其他内容：',
