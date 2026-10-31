@@ -50,3 +50,54 @@ as $function$
   select org_id from public.org_members
   where user_id = auth.uid()::text and status = 'active' and role = 'admin';
 $function$;
+
+-- ---------- lessons ----------
+alter table public.lessons enable row level security;
+grant select, insert, update, delete, references, trigger, truncate on public.lessons to anon, authenticated, service_role;
+
+drop policy if exists lessons_select_own on public.lessons;
+create policy lessons_select_own on public.lessons for select
+  using (auth.uid()::text = user_id);
+drop policy if exists lessons_insert_own on public.lessons;
+create policy lessons_insert_own on public.lessons for insert
+  with check (auth.uid()::text = user_id);
+drop policy if exists lessons_update_own on public.lessons;
+create policy lessons_update_own on public.lessons for update
+  using (auth.uid()::text = user_id)
+  with check (auth.uid()::text = user_id);
+drop policy if exists lessons_delete_own on public.lessons;
+create policy lessons_delete_own on public.lessons for delete
+  using (auth.uid()::text = user_id);
+-- 机构可见课例：本机构全员可读；教研组长/管理员可跨 visibility 读本机构全部课例
+drop policy if exists lessons_org_read on public.lessons;
+create policy lessons_org_read on public.lessons for select
+  using (
+    (visibility = 'org' and org_id in (select my_org_ids()))
+    or (org_id in (select my_leader_org_ids()))
+  );
+
+-- ---------- lesson_assets ----------
+alter table public.lesson_assets enable row level security;
+grant select, insert, update, delete, references, trigger, truncate on public.lesson_assets to anon, authenticated, service_role;
+
+drop policy if exists assets_select_own on public.lesson_assets;
+create policy assets_select_own on public.lesson_assets for select
+  using (auth.uid()::text = user_id);
+drop policy if exists assets_insert_own on public.lesson_assets;
+create policy assets_insert_own on public.lesson_assets for insert
+  with check (auth.uid()::text = user_id);
+drop policy if exists assets_update_own on public.lesson_assets;
+create policy assets_update_own on public.lesson_assets for update
+  using (auth.uid()::text = user_id)
+  with check (auth.uid()::text = user_id);
+drop policy if exists assets_delete_own on public.lesson_assets;
+create policy assets_delete_own on public.lesson_assets for delete
+  using (auth.uid()::text = user_id);
+drop policy if exists assets_org_read on public.lesson_assets;
+create policy assets_org_read on public.lesson_assets for select
+  using (exists (
+    select 1 from lessons l
+    where l.id = lesson_assets.lesson_id
+      and ((l.visibility = 'org' and l.org_id in (select my_org_ids()))
+           or (l.org_id in (select my_leader_org_ids())))
+  ));
