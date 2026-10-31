@@ -69,6 +69,13 @@ const FLOW = [
   },
 ];
 
+const PHASES = [
+  { name: '情境引入', aff: '好奇·冲突', desc: '用认知冲突或真实问题唤起好奇' },
+  { name: '探究建构', aff: '投入·成就', desc: '在追问与合作中产出自己的结论' },
+  { name: '变式迁移', aff: '灵活·自信', desc: '在变化中识别不变结构' },
+  { name: '反思提升', aff: '自觉·认同', desc: '把经验整理成可迁移的方法' },
+];
+
 const DIMENSIONS = [
   { code: 'D1', name: '情智融合教学设计', weight: '0.20', focus: '目标与任务中的情智双线融合' },
   { code: 'D2', name: '数学高阶思维发展', weight: '0.25', focus: '策略型、批判型、创新型思维水平' },
@@ -184,6 +191,35 @@ export default function HelpPage() {
           <h2 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
             <Target className="h-4 w-4 text-primary" /> 三、报告怎么读（情智相长视角）
           </h2>
+          <div className="my-3">
+            <svg viewBox="0 0 800 90" className="w-full" style={{ height: 'auto' }} role="img" aria-labelledby="helix-t helix-d">
+              <title id="helix-t">情智相长四环节结构</title>
+              <desc id="helix-d">认知线与情感线在情境引入、探究建构、变式迁移、反思提升四个环节中交替起伏，并在每个环节的中心交汇，交汇处用紫色圆点标出。</desc>
+              <path d="M20 45 C50 12 70 12 100 45 C130 78 270 78 300 45 C330 12 470 12 500 45 C530 78 670 78 700 45 C730 12 760 12 780 45" fill="none" stroke="#186B75" strokeWidth="2.5" strokeLinecap="round" />
+              <path d="M20 45 C50 78 70 78 100 45 C130 12 270 12 300 45 C330 78 470 78 500 45 C530 12 670 12 700 45 C730 78 760 78 780 45" fill="none" stroke="#B15A32" strokeWidth="2.5" strokeLinecap="round" />
+              <circle cx="100" cy="45" r="6" fill="#5B4B8A" />
+              <circle cx="300" cy="45" r="6" fill="#5B4B8A" />
+              <circle cx="500" cy="45" r="6" fill="#5B4B8A" />
+              <circle cx="700" cy="45" r="6" fill="#5B4B8A" />
+            </svg>
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+              <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full" style={{ background: '#186B75' }} />认知线</span>
+              <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full" style={{ background: '#B15A32' }} />情感线</span>
+              <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full" style={{ background: '#5B4B8A' }} />情智交汇</span>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {PHASES.map((p) => (
+                <div key={p.name} className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-2">
+                  <div className="text-xs font-medium text-foreground">{p.name}</div>
+                  <div className="text-[11px] text-primary">{p.aff}</div>
+                  <div className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{p.desc}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            情智相长不是先激趣再授课的两段式，而是情感与认知在每个环节同步推进：情境里孕育情感，探究里同步生长认知。
+          </p>
           <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
             这份报告不是「给老师打分」，而是回答一个问题：<span className="text-foreground/80">这节课里，情感体验和思维发展是怎样互相支撑的？</span>
             所以先看关系，再看分数。
