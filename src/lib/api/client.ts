@@ -434,6 +434,15 @@ export const platformApi = {
     return api.get<PlatformPayload>(`/api/admin${qs ? `?${qs}` : ''}`);
   },
   health: () => api.get<SchemaHealthPayload>('/api/admin/health/schema'),
+  /**
+   * 平台管理员代重置某用户密码（helpdesk 模式，不依赖邮件）。
+   * 不传 password 时由服务端生成强随机密码；返回的 password 只出现一次，需线下转告用户。
+   */
+  resetUserPassword: (userId: string, password?: string) =>
+    api.post<{ ok: true; password: string; generated: boolean }>(
+      `/api/admin/users/${encodeURIComponent(userId)}/reset-password`,
+      password ? { password } : {},
+    ),
 };
 
 // ---------- 数据接入：素材文件 + 转写文稿/观察记录 ----------

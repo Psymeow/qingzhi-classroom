@@ -7,6 +7,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
   Activity,
   AlertTriangle,
   Building2,
@@ -16,6 +24,7 @@ import {
   FileText,
   Loader2,
   Lock,
+  KeyRound,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -27,6 +36,7 @@ import {
   ApiError,
   type PlatformPayload,
   type PlatformLessonFilters,
+  type PlatformUser,
   type SchemaHealthPayload,
 } from '@/lib/api/client';
 import { LESSON_STATUS } from '@/lib/lesson/constants';
@@ -218,6 +228,41 @@ export default function AdminPage() {
   const [healthLoading, setHealthLoading] = useState(false);
   const [filters, setFilters] = useState<PlatformLessonFilters>(EMPTY_FILTERS);
   const [filterLoading, setFilterLoading] = useState(false);
+  // 代重置密码（helpdesk 模式）：目标账号 + 新密码回显 + 提交中
+  const [resetTarget, setResetTarget] = useState<PlatformUser | null>(null);
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetResult, setResetResult] = useState<{ password: string; generated: boolean } | null>(null);
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
+
+  const openReset = (u: PlatformUser) => {
+    setResetTarget(u);
+    setResetPassword('');
+    setResetResult(null);
+    setResetError(null);
+  };
+
+  const closeReset = () => {
+    if (resetting) return;
+    setResetTarget(null);
+    setResetResult(null);
+    setResetError(null);
+  };
+
+  async function handleReset() {
+    if (!resetTarget) return;
+    setResetting(true);
+    setResetError(null);
+    try {
+      const res = await platformApi.resetUserPassword(resetTarget.user_id, resetPassword.trim() || undefined);
+      setResetResult({ password: res.password, generated: res.generated });
+      setResetPassword('');
+    } catch (e) {
+      setResetError(e instanceof ApiError ? e.message : '请求失败，请稍后重试');
+    } finally {
+      setResetting(false);
+    }
+  }
 
   const loadHealth = useCallback(async () => {
     setHealthLoading(true);
@@ -567,6 +612,7 @@ export default function AdminPage() {
                     <th className="px-2 py-2 text-left font-medium">机构角色</th>
                     <th className="px-2 py-2 text-right font-medium">课例数</th>
                     <th className="px-2 py-2 text-left font-medium">注册时间</th>
+                    <th className="px-2 py-2 text-right font-medium">操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -579,11 +625,22 @@ export default function AdminPage() {
                       </td>
                       <td className="px-2 py-2 text-right tabular-nums text-foreground/80">{u.lesson_count}</td>
                       <td className="px-2 py-2 text-muted-foreground">{u.joined_at}</td>
+                      <td className="px-2 py-2 text-right">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-6 px-2 text-[11px]"
+                          onClick={() => openReset(u)}
+                        >
+                          <KeyRound className="h-3 w-3" />
+                          重置密码
+                        </Button>
+                      </td>
                     </tr>
                   ))}
                   {users.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="px-2 py-8 text-center">
+                      <td colSpan={6} className="px-2 py-8 text-center">
                         {q ? (
                           <span className="text-muted-foreground">
                             没有匹配「{query.trim()}」的账号，换个关键词或清空筛选。
@@ -780,8 +837,80 @@ export default function AdminPage() {
 
       <p className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground/70">
         <Activity className="h-3 w-3" />
-        当前筛选结果 {current} 条 · 数据只读，总台不做任何写操作 · 数据取回于 {fmtTime(payload.fetched_at)}
+        当前筛选结果 {current} 条 · 业务数据只读；账号侧仅提供「代重置密码」一项写操作 · 数据取回于{' '}
+        {fmtTime(payload.fetched_at)}
       </p>
+
+      {/* 代重置密码：仅平台白名单可用，新密码只回显一次 */}
+      <Dialog open={!!resetTarget} onOpenChange={(open) => !open && closeReset()}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="h-4 w-4 text-primary" />
+              重置密码
+            </DialogTitle>
+            <DialogDescription>
+              将为 <span className="font-medium text-foreground">{resetTarget?.email || '该账号'}</span> 设置新密码。
+              这条通道不依赖邮箱，用于收不到重置邮件或账号被锁的场景。
+            </DialogDescription>
+          </DialogHeader>
+
+          {resetResult ? (
+            <div className="space-y-3">
+              <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
+                <p className="text-xs font-medium text-foreground">新密码（只显示这一次，请立即转告用户）</p>
+                <p className="mt-1.5 break-all font-mono text-sm font-semibold text-primary">
+                  {resetResult.password}
+                </p>
+              </div>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                {resetResult.generated
+                  ? '这是系统生成的随机密码。用户登录后应自行修改。'
+                  : '这是你设置的密码。请通过安全渠道告知用户，并提醒其登录后尽快修改。'}
+                <br />
+                出于安全考虑，本平台不会再次显示该密码。
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <label htmlFor="reset-pw" className="text-xs font-medium text-foreground">
+                  新密码（可留空，留空则自动生成强随机密码）
+                </label>
+                <Input
+                  id="reset-pw"
+                  type="text"
+                  autoComplete="new-password"
+                  value={resetPassword}
+                  onChange={(e) => setResetPassword(e.target.value)}
+                  placeholder="至少 8 位；留空自动生成"
+                  className="font-mono"
+                />
+              </div>
+              {resetError && <p className="text-xs text-destructive">{resetError}</p>}
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                该操作会立即使该账号的旧密码失效。仅限平台白名单管理员使用。
+              </p>
+            </div>
+          )}
+
+          <DialogFooter>
+            {resetResult ? (
+              <Button onClick={closeReset}>我已保存</Button>
+            ) : (
+              <>
+                <Button variant="outline" onClick={closeReset} disabled={resetting}>
+                  取消
+                </Button>
+                <Button onClick={handleReset} disabled={resetting}>
+                  {resetting && <Loader2 className="h-4 w-4 animate-spin" />}
+                  确认重置
+                </Button>
+              </>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

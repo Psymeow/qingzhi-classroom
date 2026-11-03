@@ -75,18 +75,31 @@ export default function LessonsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
+    // 课例列表是主数据，取不到才认为整页失败；标准列表仅用于新建弹窗的下拉（辅助数据），
+    // 单独取、失败只降级为空下拉——否则任一接口出错都会把空列表渲染成「加载失败」。
     try {
-      const [ls, ss] = await Promise.all([lessonsApi.list(), standardsApi.list()]);
+      const ls = await lessonsApi.list();
       setLessons(ls);
-      setStandards(ss);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
         router.replace('/login');
         return;
       }
       setLoadError(friendlyError(e, '课例列表暂时加载不出来，可能是网络不稳定或登录状态过期。'));
+      return;
     } finally {
       setLoading(false);
+    }
+
+    try {
+      setStandards(await standardsApi.list());
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) {
+        router.replace('/login');
+        return;
+      }
+      // 标准取不到不打断列表：新建课例时下拉为空，用户仍可手动填写或稍后重试
+      setStandards([]);
     }
   }, [router]);
 
