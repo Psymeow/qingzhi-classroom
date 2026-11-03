@@ -83,6 +83,24 @@ const SECTION_NAV = [
   { n: '4', id: 'sec-scene', title: '课堂现场与材料' },
 ];
 
+/** 证据来源分组的固定排序：课堂上真实发生的排前面，教案排最后。 */
+const EVIDENCE_GROUP_ORDER: LocateSource[] = [
+  'av_transcript',
+  'task_sheet',
+  'observer_note',
+  'lesson_plan',
+  'manual_annotation',
+];
+
+/** 各来源的组标题，让教师一眼分清哪句是课堂实录、哪句是课前教案。 */
+const EVIDENCE_GROUP_LABEL: Record<LocateSource, string> = {
+  av_transcript: '课堂实录 · 师生原话',
+  task_sheet: '学生任务单 · 学生作答',
+  observer_note: '观察员记录 · 听课笔记',
+  lesson_plan: '教学设计 · 课前教案',
+  manual_annotation: '人工标注',
+};
+
 /** 章节抬头：编号 + 标题 + 一句「这一节回答什么」，先教怎么看再给数据。 */
 function SectionHead({
   n,
@@ -355,6 +373,7 @@ export default function ReportView({
   const actionLine = commentary?.action_items?.[0] ?? commentary?.suggestions?.[0] ?? '';
 
   // P0-3：证据渲染抽成一处——五维卡只留分数与对账，证据独立成章复用同一渲染。
+  // 来源分组固定顺序：课堂上真实发生的排前面，教案排最后，避免教师把教案原文误当课堂实录。
   const renderEvidence = (d: (typeof result.dimension_results)[number]) => {
     const groups = d.source_scores.filter((s) => s.evidences.length > 0);
     const fallbackText = getSourceText('av_transcript') ?? '';
@@ -377,22 +396,39 @@ export default function ReportView({
         </ul>
       );
     }
+    const ordered = EVIDENCE_GROUP_ORDER.map((src) => groups.find((s) => s.source === src)).filter(
+      (g): g is (typeof groups)[number] => Boolean(g),
+    );
     return (
-      <div className="mt-1 space-y-0">
-        {groups.flatMap((s) => {
+      <div>
+        {ordered.map((s, gi) => {
           const srcText = getSourceText(s.source as LocateSource) ?? '';
-          return s.evidences.slice(0, 2).map((ev, k) => {
-            const at = locateIndex(srcText, ev);
-            return (
-              <EvidenceItem
-                key={`${s.source}-${k}`}
-                quote={ev}
-                source={s.source as LocateSource}
-                timestamp={s.source === 'av_transcript' && at >= 0 ? nearestTimestamp(srcText, at) : null}
-                disabled={offlineSample}
-              />
-            );
-          });
+          return (
+            <div key={s.source} className={gi === 0 ? 'mt-1' : 'mt-1.5'}>
+              <div className="flex flex-wrap items-baseline gap-x-1.5 text-[11px] font-medium text-foreground/80">
+                <span>{EVIDENCE_GROUP_LABEL[s.source as LocateSource]}</span>
+                {s.source === 'lesson_plan' && (
+                  <span className="text-[10px] font-normal text-muted-foreground">
+                    这是备课时的设计，不是课堂上发生的事
+                  </span>
+                )}
+              </div>
+              <div className="mt-0.5">
+                {s.evidences.slice(0, 2).map((ev, k) => {
+                  const at = locateIndex(srcText, ev);
+                  return (
+                    <EvidenceItem
+                      key={`${s.source}-${k}`}
+                      quote={ev}
+                      source={s.source as LocateSource}
+                      timestamp={s.source === 'av_transcript' && at >= 0 ? nearestTimestamp(srcText, at) : null}
+                      disabled={offlineSample}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          );
         })}
       </div>
     );

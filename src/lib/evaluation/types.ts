@@ -239,6 +239,8 @@ export interface LessonTypePointResult {
   level_label: string | null;
   reason?: string;
   evidences?: string[];
+  /** 与 evidences 等长、一一对应，标记每条证据来源；由合并时写入，缺省表示来源不明 */
+  evidence_sources?: DataSource[];
 }
 
 /** 课型视角（要点分组）评分结果 */
@@ -417,6 +419,8 @@ export interface LlmIndicatorScore {
   reason: string;
   /** 模型引用的原文证据 */
   evidences: string[];
+  /** 与 evidences 等长、一一对应，标记每条证据来源；由合并时写入，缺省表示来源不明 */
+  evidence_sources?: DataSource[];
 }
 
 /** 指标级 LLM 评分映射：indicator_code -> 评分 */

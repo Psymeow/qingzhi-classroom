@@ -108,6 +108,9 @@ async function collectLlmScores(
   const av: LlmScoreMap = {};
   const observer: LlmScoreMap = {};
   const ltScores: LlmScoreMap = {};
+  // 课型要点按来源分头收集，合并时再标来源（课堂实录在前、观察记录在后）
+  const ltTranscript: LlmScoreMap = {};
+  const ltObserver: LlmScoreMap = {};
   // 表一内涵观察点：av/observer 分别取分，同点两源都有分时取均值
   const essenceAv: LlmScoreMap = {};
   const essenceOb: LlmScoreMap = {};
@@ -194,7 +197,7 @@ async function collectLlmScores(
       jobs.push(
         scoreLessonTypeWithLlm(transcript, 'transcript', lessonType, band, standard)
           .then((r) => {
-            Object.assign(ltScores, r.scores);
+            Object.assign(ltTranscript, r.scores);
             ltModelName = r.model;
           })
           .catch((e) => {
@@ -206,7 +209,7 @@ async function collectLlmScores(
       jobs.push(
         scoreLessonTypeWithLlm(observerText, 'observer', lessonType, band, standard)
           .then((r) => {
-            Object.assign(ltScores, r.scores);
+            Object.assign(ltObserver, r.scores);
             ltModelName = r.model;
           })
           .catch((e) => {
@@ -235,6 +238,34 @@ async function collectLlmScores(
   const llmScores: { av?: LlmScoreMap; observer?: LlmScoreMap } = {};
   if (Object.keys(av).length) llmScores.av = av;
   if (Object.keys(observer).length) llmScores.observer = observer;
+
+  // 课型要点按来源合并：分数沿用原有的覆盖式规则（观察记录在后写入、存在即覆盖课堂实录），
+  // 证据改为先放课堂实录再放观察记录并去重，同步写入来源标记，供前端逐条标注。
+  for (const code of new Set([...Object.keys(ltTranscript), ...Object.keys(ltObserver)])) {
+    const t = ltTranscript[code];
+    const o = ltObserver[code];
+    const winner = o ?? t;
+    if (!winner) continue;
+    const evidences: string[] = [];
+    const evidenceSources: DataSource[] = [];
+    const seen = new Set<string>();
+    const push = (list: string[] | undefined, src: DataSource) => {
+      for (const e of list ?? []) {
+        if (seen.has(e)) continue;
+        seen.add(e);
+        evidences.push(e);
+        evidenceSources.push(src);
+      }
+    };
+    push(t?.evidences, 'av_transcript');
+    push(o?.evidences, 'observer_note');
+    ltScores[code] = {
+      score: winner.score,
+      reason: winner.reason,
+      evidences,
+      evidence_sources: evidenceSources,
+    };
+  }
 
   const ltCount = Object.keys(ltScores).length;
 

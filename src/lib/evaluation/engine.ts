@@ -361,6 +361,11 @@ function buildLessonTypeEvaluation(input: EngineInput): LessonTypeEvaluation | n
         level_label: bandLabel10(score),
         reason: hit?.reason || undefined,
         evidences: hit?.evidences?.length ? hit.evidences : undefined,
+        // 与 evidences 等长、一一对应；runner 合并时写入，缺省表示来源不明（旧报告）
+        evidence_sources:
+          hit?.evidence_sources && hit.evidence_sources.length === hit.evidences?.length
+            ? hit.evidence_sources
+            : undefined,
       };
     });
     const vals = points.map((p) => p.score).filter((v): v is number => v !== null);

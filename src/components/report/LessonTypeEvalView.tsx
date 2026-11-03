@@ -4,7 +4,21 @@ import { useState } from 'react';
 import { BookOpenCheck, ChevronDown, Quote, Sparkles, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import type { LessonTypeEvaluation } from '@/lib/evaluation/types';
+import type { DataSource, LessonTypeEvaluation } from '@/lib/evaluation/types';
+
+/** 课型要点证据的来源标签；旧报告没有 evidence_sources 时回退「原文」。 */
+const EVIDENCE_SOURCE_LABEL: Partial<Record<DataSource, string>> = {
+  av_transcript: '课堂原话',
+  observer_note: '观察记录',
+  task_sheet: '任务单',
+  lesson_plan: '教案',
+  manual_annotation: '标注',
+};
+
+/** 取证据来源标签；缺省（旧报告无 evidence_sources）回退「原文」。 */
+function srcLabel(source: DataSource | undefined): string {
+  return (source && EVIDENCE_SOURCE_LABEL[source]) || '原文';
+}
 
 function pointColor(score: number | null): string {
   if (score === null) return 'bg-muted';
@@ -189,21 +203,32 @@ export default function LessonTypeEvalView({
                         )}
 
                         {pt.reason && (
-                          <p className="mt-1.5 text-[11px] leading-relaxed text-foreground/80">
+                          <p className="mt-1.5 rounded-md bg-muted/40 px-2 py-1 text-xs leading-relaxed text-foreground">
+                            <span className="font-medium">AI 判定：</span>
                             {pt.reason}
                           </p>
                         )}
                         {pt.evidences && pt.evidences.length > 0 && (
                           <ul className="mt-1 space-y-0.5">
-                            {pt.evidences.map((evText, i) => (
+                            {pt.evidences.slice(0, 3).map((evText, i) => (
                               <li
                                 key={i}
                                 className="flex gap-1 text-[11px] leading-relaxed text-muted-foreground"
                               >
                                 <Quote className="mt-0.5 h-2.5 w-2.5 shrink-0 opacity-60" />
-                                <span>{evText}</span>
+                                <span className="min-w-0 flex-1">
+                                  <span className="mr-1 inline-flex shrink-0 items-center rounded bg-primary/10 px-1 py-px text-[10px] font-medium text-primary">
+                                    {srcLabel(pt.evidence_sources?.[i])}
+                                  </span>
+                                  {evText}
+                                </span>
                               </li>
                             ))}
+                            {pt.evidences.length > 3 && (
+                              <li className="pl-1 text-[10px] text-muted-foreground/70">
+                                还有 {pt.evidences.length - 3} 条
+                              </li>
+                            )}
                           </ul>
                         )}
                       </div>
