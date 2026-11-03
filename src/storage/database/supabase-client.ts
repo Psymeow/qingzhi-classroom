@@ -96,8 +96,25 @@ except Exception as e:
   }
 }
 
+/**
+ * PREFER_ENV_SUPABASE 开关（默认 true）：
+ * 为 true 且环境变量 SUPABASE_URL / SUPABASE_ANON_KEY 同时存在时，服务端与浏览器端
+ * 一律使用环境变量指向的库（线上为真实业务库）；否则保持原顺序——平台集成注入的
+ * projectCredentials 优先，仅在环境变量缺失时才回退到它。设为 'false' 可恢复旧行为。
+ */
+function preferEnvSupabase(): boolean {
+  return (process.env.PREFER_ENV_SUPABASE ?? 'true').toLowerCase() !== 'false';
+}
+
 async function getSupabaseCredentials(): Promise<SupabaseCredentials> {
   await loadEnv();
+
+  const envUrl = process.env.SUPABASE_URL;
+  const envAnonKey = process.env.SUPABASE_ANON_KEY;
+
+  if (preferEnvSupabase() && envUrl && envAnonKey) {
+    return { url: envUrl, anonKey: envAnonKey };
+  }
 
   if (projectCredentials) return projectCredentials;
 
