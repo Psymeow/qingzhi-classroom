@@ -299,6 +299,16 @@ export interface DimensionInterpretation {
   how_to_improve: string;
 }
 
+/**
+ * 单条证据的解读（B2）：把孤立引文变成「这反映了什么、为什么支撑这个分」。
+ * quote 与报告里该维度的 evidence 字符串一致，用于前端逐条配对；旧报告缺省。
+ */
+export interface EvidenceReading {
+  dimension_code: string;
+  quote: string;
+  reading: string;
+}
+
 /** 完整分析报告结果 */
 export interface AnalysisReport {
   lesson_id: string;
@@ -327,6 +337,8 @@ export interface AnalysisReport {
    * 复用 DimensionInterpretation 结构，dimension_code = 'cognitive' / 'affective'；
    * 查看报告时按需生成并回写，旧报告缺省 */
   essence_interpretations?: DimensionInterpretation[];
+  /** 各维度证据的逐条解读（B2：谁说了什么→这说明什么→为什么这个分），查看报告时按需生成并回写，旧报告缺省 */
+  evidence_readings?: EvidenceReading[];
   /** 课型专属分析模型评价结果（未设置或无法识别课型时为 null） */
   lesson_type_eval?: LessonTypeEvaluation | null;
   /** 表一内涵框架细化评价：认知（高阶思维 11 指标）+ 情感（情感素养 8 指标）观察点 */

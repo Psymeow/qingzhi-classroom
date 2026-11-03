@@ -116,3 +116,17 @@ export function nearestTimestamp(text: string, index: number): string | null {
   }
   return last;
 }
+
+/**
+ * 取原文某位置所在行的说话人（如「教师」「学生」），找不到返回 null。
+ * 转写行形如 `[00:12][教师]: ...`；行首方括号里第二个才是说话人。
+ */
+export function speakerAt(text: string, index: number): string | null {
+  if (!text || index < 0 || index > text.length) return null;
+  const lineStart = text.lastIndexOf('\n', index - 1) + 1;
+  const lineEnd = text.indexOf('\n', index);
+  const line = text.slice(lineStart, lineEnd < 0 ? text.length : lineEnd);
+  // 行首可能有时间码，说话人紧随其后；只认第一个方括号对之后的方括号内容
+  const m = /^\s*(?:\[[^\]]*\]\s*)?\[([^\]]+)\]/.exec(line);
+  return m?.[1]?.trim() || null;
+}

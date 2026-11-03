@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, Loader2, RefreshCw, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ApiError, analysisApi } from '@/lib/api/client';
-import type { DimensionInterpretation } from '@/lib/evaluation/types';
+import type { DimensionInterpretation, EvidenceReading } from '@/lib/evaluation/types';
 
 // ============================================================
 // 维度级 AI 解读（V1.17）：每个维度的评分下挂四段可展开长文——
@@ -74,6 +74,80 @@ export function useDimensionInterpretations({
     let cancelled = false;
     setLoading(true);
     ensureDimensionInterpretations(lessonId)
+      .then((arr) => {
+        if (cancelled) return;
+        setItems(arr.length > 0 ? arr : null);
+        if (arr.length === 0) setError('未生成解读内容');
+      })
+      .catch((e) => {
+        if (!cancelled) setError(friendlyError(e));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [genKey, attempt, enabled, lessonId]);
+
+  const retry = () => setAttempt((a) => a + 1);
+  return { items, loading, error, retry };
+}
+
+// ---------- 逐条证据解读（B2）：把孤立引文变成「这说明什么/为什么这个分」 ----------
+// 与维度解读同款按需生成（独立请求、独立去重），旧报告缺省时补生成一次。
+
+const readingsInflight = new Map<string, Promise<EvidenceReading[]>>();
+
+function ensureEvidenceReadings(lessonId: string): Promise<EvidenceReading[]> {
+  const hit = readingsInflight.get(lessonId);
+  if (hit) return hit;
+  const p = analysisApi.generateEvidenceReadings(lessonId).finally(() => {
+    readingsInflight.delete(lessonId);
+  });
+  readingsInflight.set(lessonId, p);
+  return p;
+}
+
+interface UseEvidenceReadingsOpts {
+  lessonId: string;
+  /** 报告里已有的证据解读（旧报告缺省时按需补生成） */
+  existing?: EvidenceReading[] | null;
+  /** 报告生成时间：重新分析后旧解读作废，状态整体复位 */
+  genKey: string;
+  /** 是否允许按需生成：离线样例 / 关闭「AI 深度分析」的报告不生成 */
+  enabled: boolean;
+}
+
+/** 取各维度证据的逐条解读；缺失时自动（去重）调用一次生成接口 */
+export function useEvidenceReadings({
+  lessonId,
+  existing,
+  genKey,
+  enabled,
+}: UseEvidenceReadingsOpts) {
+  const [items, setItems] = useState<EvidenceReading[] | null>(existing ?? null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const startedKeyRef = useRef<string | null>(null);
+  const existingRef = useRef(existing);
+  useEffect(() => {
+    existingRef.current = existing;
+  }, [existing]);
+
+  useEffect(() => {
+    const own = existingRef.current ?? null;
+    setItems(own);
+    setError(null);
+    if (own && own.length > 0) return;
+    if (!enabled || !lessonId) return;
+    const myKey = `${genKey}:${attempt}`;
+    if (startedKeyRef.current === myKey) return;
+    startedKeyRef.current = myKey;
+    let cancelled = false;
+    setLoading(true);
+    ensureEvidenceReadings(lessonId)
       .then((arr) => {
         if (cancelled) return;
         setItems(arr.length > 0 ? arr : null);

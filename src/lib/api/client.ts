@@ -658,7 +658,7 @@ export const annotationApi = {
 };
 
 // ---------- 分析报告（多源融合引擎） ----------
-import type { AnalysisReport, DataSource, DimensionInterpretation } from '@/lib/evaluation/types';
+import type { AnalysisReport, DataSource, DimensionInterpretation, EvidenceReading } from '@/lib/evaluation/types';
 
 export interface StoredReport {
   id: string;
@@ -727,6 +727,18 @@ export const analysisApi = {
       opts?.signal ? { signal: opts.signal } : undefined,
     );
     return r.interpretations ?? [];
+  },
+  /** 按需生成各维度证据的逐条解读（这反映了什么/为什么支撑这个分），服务端生成后写回报告 */
+  generateEvidenceReadings: async (
+    lessonId: string,
+    opts?: { signal?: AbortSignal },
+  ): Promise<EvidenceReading[]> => {
+    const r = await api.post<{ readings: EvidenceReading[] }>(
+      `/api/lessons/${lessonId}/analysis/evidence-reading`,
+      {},
+      opts?.signal ? { signal: opts.signal } : undefined,
+    );
+    return r.readings ?? [];
   },
 };
 

@@ -24,7 +24,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import { annotationApi, apiDownload, ApiError, type StoredReport } from '@/lib/api/client';
+import { annotationApi, apiDownload, ApiError, inputsApi, type StoredReport } from '@/lib/api/client';
 import { SOURCE_LABEL } from '@/lib/evaluation/types';
 import { pickBehaviors } from '@/lib/evaluation/behavior-library';
 import type { DimMeta } from '@/components/annotation/DimensionScores';
@@ -44,11 +44,19 @@ import IndicatorMap from './IndicatorMap';
 import EvidenceItem from './EvidenceItem';
 import DimensionInterpretationBlock, {
   useDimensionInterpretations,
+  useEvidenceReadings,
 } from './DimensionInterpretation';
 import TheoryAnchorTag from './TheoryAnchorTag';
 import { collectBibliography, METHODOLOGY_NOTE } from '@/lib/report/theory-anchors';
 import { downloadReportHtml } from '@/lib/report/export-html';
-import { getSourceText, locateQuote, nearestTimestamp, type LocateSource } from '@/lib/report/locate';
+import {
+  getSourceText,
+  locateQuote,
+  nearestTimestamp,
+  setSourceText,
+  speakerAt,
+  type LocateSource,
+} from '@/lib/report/locate';
 
 /** 证据在原文中的起始位置（找不到返回 -1）。 */
 function locateIndex(text: string, quote: string): number {
@@ -186,6 +194,8 @@ export default function ReportView({
   const [loadingAnn, setLoadingAnn] = useState(!initialAnnotation);
   const [exportMsg, setExportMsg] = useState<string | null>(null);
   const [exportingDocx, setExportingDocx] = useState(false);
+  // 原文缓存写入完成后的重渲染触发器：缓存是模块级的，写入不会自动触发更新
+  const [, setSourceTick] = useState(0);
   const reportRef = useRef<HTMLDivElement | null>(null);
 
   const exportFileName = useMemo(() => {
@@ -313,6 +323,32 @@ export default function ReportView({
   // 离线样例没有「数据接入」原文，证据不可跳转
   const offlineSample = lessonId === 'sample-lesson';
 
+  // 第一层：报告页自己加载原始材料并写入定位缓存。
+  // 时间戳/说话人依赖 getSourceText 的模块缓存，该缓存原先只由「数据接入」写入——
+  // 教师直接打开报告页或刷新时缓存为空，所有时间码全部丢失。这里独立补一次，
+  // 使证据的「时间戳 + 说话人」在任何入口都稳定可得。
+  useEffect(() => {
+    if (offlineSample) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const input = await inputsApi.get(lessonId);
+        if (cancelled || !input) return;
+        setSourceText('av_transcript', input.transcript);
+        setSourceText('observer_note', input.observer_text);
+        setSourceText('task_sheet', input.task_sheet_text);
+        setSourceTick((n) => n + 1);
+      } catch (e) {
+        // 401 交给页面统一跳登录；其余失败只影响时间码显示，不打断报告阅读
+        if (e instanceof ApiError && e.status === 401) onUnauthorized();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lessonId, offlineSample]);
+
   // V1.17 维度级 AI 解读：旧报告缺省时按需生成一次，随后随报告落库
   const dimInterp = useDimensionInterpretations({
     lessonId,
@@ -320,6 +356,20 @@ export default function ReportView({
     existing: result.dimension_interpretations,
     enabled: !offlineSample && result.ai_meta?.enabled !== false,
   });
+
+  // B2 逐条证据解读：旧报告缺省时按需生成一次，随后随报告落库
+  const evReadings = useEvidenceReadings({
+    lessonId,
+    genKey: result.generated_at,
+    existing: result.evidence_readings,
+    enabled: !offlineSample && result.ai_meta?.enabled !== false,
+  });
+  // quote → reading 索引，供证据渲染时按维度+原文逐条取
+  const readingIndex = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of evReadings.items ?? []) m.set(`${r.dimension_code} ${r.quote}`, r.reading);
+    return m;
+  }, [evReadings.items]);
 
   const radarData = useMemo(() => {
     const metaMap = new Map(dimensions.map((d) => [d.code, d]));
@@ -389,6 +439,8 @@ export default function ReportView({
                 quote={ev}
                 source="av_transcript"
                 timestamp={at >= 0 ? nearestTimestamp(fallbackText, at) : null}
+                speaker={at >= 0 ? speakerAt(fallbackText, at) : null}
+                reading={readingIndex.get(`${d.dimension_code} ${ev}`) ?? null}
                 disabled={offlineSample}
               />
             );
@@ -422,6 +474,8 @@ export default function ReportView({
                       quote={ev}
                       source={s.source as LocateSource}
                       timestamp={s.source === 'av_transcript' && at >= 0 ? nearestTimestamp(srcText, at) : null}
+                      speaker={s.source === 'av_transcript' && at >= 0 ? speakerAt(srcText, at) : null}
+                      reading={readingIndex.get(`${d.dimension_code} ${ev}`) ?? null}
                       disabled={offlineSample}
                     />
                   );
