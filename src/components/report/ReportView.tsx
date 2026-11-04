@@ -211,12 +211,14 @@ export default function ReportView({
    * 而 <a> 导航是浏览器原生请求，带不上自定义头，服务端必然回 401 JSON——
    * 浏览器却会把这次导航当作下载落盘，于是用户拿到一个「export.json」。
    * 改为 fetch 后先验状态与内容类型，失败时只提示、不存盘。
+   *
+   * variant：brief 精简版（日常教研快读）/ full 完整版（全量内容）。
    */
-  const handleDownloadDocx = async () => {
+  const handleDownloadDocx = async (variant: 'brief' | 'full') => {
     setExportingDocx(true);
     setExportMsg(null);
     try {
-      const path = `/api/lessons/${lessonId}/report/export`;
+      const path = `/api/lessons/${lessonId}/report/export?variant=${variant}`;
       const res = await apiDownload(path);
       const type = res.headers.get('content-type') ?? '';
 
@@ -238,7 +240,7 @@ export default function ReportView({
       const plainMatch = /filename="?([^";]+)"?/i.exec(disp);
       const name = starMatch
         ? decodeURIComponent(starMatch[1])
-        : plainMatch?.[1] || `${exportFileName}.docx`;
+        : plainMatch?.[1] || `${exportFileName}_${variant === 'brief' ? '精简版' : '完整版'}.docx`;
 
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -248,7 +250,7 @@ export default function ReportView({
       a.click();
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 4000);
-      setExportMsg('Word 报告已开始下载。');
+      setExportMsg(`${variant === 'brief' ? '精简版' : '完整版'} Word 报告已开始下载。`);
     } catch (e) {
       setExportMsg(
         e instanceof ApiError && e.status === 401
@@ -258,6 +260,18 @@ export default function ReportView({
     } finally {
       setExportingDocx(false);
     }
+  };
+
+  /**
+   * 完整版导出前置确认：若报告尚未生成 AI 解读，会先自动补齐（可能几十秒）。
+   * 用原生 confirm 而非自绘弹窗，避免打断打印/导出链路的既有实现。
+   */
+  const handleDownloadFull = () => {
+    const hasInterp = !!report.result.dimension_interpretations?.length;
+    if (!hasInterp && !window.confirm('若报告尚未生成 AI 解读，会先自动补齐，可能需要几十秒，请勿关闭页面。是否继续？')) {
+      return;
+    }
+    void handleDownloadDocx('full');
   };
 
   /** 下载独立 HTML 报告：Via 等无打印框架的浏览器的稳定导出路径。 */
@@ -504,20 +518,36 @@ export default function ReportView({
             <Printer className="mr-2 h-4 w-4" /> 打印 / 存 PDF
           </Button>
           {!offlineSample && (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={exportingDocx}
-              onClick={() => void handleDownloadDocx()}
-              title="下载 Word 版完整报告，可在 Word 中继续编辑，也可在 Word 里另存为 PDF"
-            >
-              {exportingDocx ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <FileText className="mr-2 h-4 w-4" />
-              )}
-              {exportingDocx ? '生成中…' : '下载 Word'}
-            </Button>
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={exportingDocx}
+                onClick={() => void handleDownloadDocx('brief')}
+                title="精简版：摘要、五维评分、证据精选、课堂现场要点，供日常教研快读"
+              >
+                {exportingDocx ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <FileText className="mr-2 h-4 w-4" />
+                )}
+                {exportingDocx ? '生成中…' : '下载精简版报告'}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={exportingDocx}
+                onClick={handleDownloadFull}
+                title="完整版：全量内容（含逐点证据、四段解读、附录），可在 Word 中继续编辑或另存为 PDF"
+              >
+                {exportingDocx ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <FileText className="mr-2 h-4 w-4" />
+                )}
+                {exportingDocx ? '生成中…' : '下载完整版报告'}
+              </Button>
+            </>
           )}
           <Button variant="outline" size="sm" onClick={handleDownloadHtml} title="下载独立网页报告，打开后可用浏览器「另存为 PDF」；折叠内容可能缺失，完整版请用「下载 Word」">
             <FileDown className="mr-2 h-4 w-4" /> 下载报告

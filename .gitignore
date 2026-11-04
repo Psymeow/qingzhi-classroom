@@ -101,3 +101,6 @@ Desktop.ini
 .codegraph/
 .cozeproj/reduction
 .preview
+
+# 参考样例（含真实师生数据，仅本地对照用，不入库）
+docs/*.docx
