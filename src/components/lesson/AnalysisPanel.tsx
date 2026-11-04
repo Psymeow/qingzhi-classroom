@@ -304,7 +304,11 @@ export default function AnalysisPanel({ lessonId, dimensions, onUnauthorized, ru
                             {d.need_review && ' → 需人工复核'}
                           </span>
                         )}
-                        <span className="text-muted-foreground/70">人工分项评分不参与此计算，只作独立参照与待复核触发。</span>
+                        {d.reconcile_method === 'indicator_aggregate' && (
+                          <span className="text-[10px] text-muted-foreground">
+                            人工分项评分不参与此计算，只作独立参照与待复核触发。
+                          </span>
+                        )}
                       </div>
                       {/* V1.17 维度级 AI 解读：依据/为什么/怎么读/怎么提升，默认收起 */}
                       <DimensionInterpretationBlock
