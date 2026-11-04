@@ -73,6 +73,20 @@ const CN_NUM = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '
 const fmt = (v: number | null | undefined, digits = 1): string =>
   v === null || v === undefined || Number.isNaN(v) ? '—' : v.toFixed(digits);
 
+/**
+ * 判定姓名字段是否形如登录账号（全 ASCII 且无空格，如 xujingwei0602 / user@example.com）。
+ * 中文姓名含非 ASCII 字符不匹配该正则，会原样显示，不会误伤。
+ * 导出件里凡出现评价人/终裁人一类姓名的地方，命中则以占位下划线代替，与页脚签名栏口径一致。
+ */
+const looksLikeAccount = (v?: string | null): boolean =>
+  !!v && /^[\x20-\x7E]+$/.test(v) && !/\s/.test(v);
+
+/** 姓名展示：空值显示 —；形如账号时脱敏为占位下划线；中文姓名原样返回 */
+const displayNameOrMask = (v?: string | null): string => {
+  if (!v) return '—';
+  return looksLikeAccount(v) ? '＿＿＿＿＿' : v;
+};
+
 /** 正文 run */
 function t(text: string, opts: Partial<IRunOptions> = {}): TextRun {
   return new TextRun({ text, color: INK, size: 21, ...opts });
@@ -339,7 +353,7 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
       bodyCell('授课教师', { bold: true, bg: ZEBRA_BG }),
       bodyCell(input.lessonMeta?.teacher_name || '—'),
       bodyCell('评价人', { bold: true, bg: ZEBRA_BG }),
-      bodyCell(input.exporterName || '—'),
+      bodyCell(displayNameOrMask(input.exporterName)),
     ],
     [
       bodyCell('评价标准', { bold: true, bg: ZEBRA_BG }),
@@ -466,7 +480,14 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
         bodyCell(dimName(c.dimension_code)),
         bodyCell(dr?.ai_score === null || dr?.ai_score === undefined ? '—' : dr.ai_score.toFixed(1), { align: AlignmentType.CENTER }),
         bodyCell(c.final_score === null || c.final_score === undefined ? '—' : c.final_score.toFixed(1), { bold: true, align: AlignmentType.CENTER }),
-        bodyCell([c.reviewer, c.reviewed_at ? new Date(c.reviewed_at).toLocaleDateString('zh-CN') : ''].filter(Boolean).join(' · ') || '—'),
+        bodyCell(
+          [
+            c.reviewer ? (looksLikeAccount(c.reviewer) ? '＿＿＿＿＿' : c.reviewer) : '',
+            c.reviewed_at ? new Date(c.reviewed_at).toLocaleDateString('zh-CN') : '',
+          ]
+            .filter(Boolean)
+            .join(' · ') || '—',
+        ),
         bodyCell(c.review_note || '—'),
       ]);
     });
