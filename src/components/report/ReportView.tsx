@@ -194,6 +194,8 @@ export default function ReportView({
   const [loadingAnn, setLoadingAnn] = useState(!initialAnnotation);
   const [exportMsg, setExportMsg] = useState<string | null>(null);
   const [exportingDocx, setExportingDocx] = useState(false);
+  // 完整版导出的就地二次确认（不用 window.confirm：Via 等安卓 WebView 不弹原生确认会卡死）
+  const [confirmFullExport, setConfirmFullExport] = useState(false);
   // 原文缓存写入完成后的重渲染触发器：缓存是模块级的，写入不会自动触发更新
   const [, setSourceTick] = useState(0);
   const reportRef = useRef<HTMLDivElement | null>(null);
@@ -263,14 +265,19 @@ export default function ReportView({
   };
 
   /**
-   * 完整版导出前置确认：若报告尚未生成 AI 解读，会先自动补齐（可能几十秒）。
-   * 用原生 confirm 而非自绘弹窗，避免打断打印/导出链路的既有实现。
+   * 完整版导出前置确认：点按钮先展开就地确认区，不直接发请求。
+   *
+   * 刻意不用原生 confirm——Via 等安卓 WebView 不弹原生确认框会卡死整条链路
+   * （V1.30 起项目内一律改就地二次确认，与标注工作台清空操作同一范式）。
+   * 确认后才真正发起导出；取消则收起，不发请求。
    */
   const handleDownloadFull = () => {
-    const hasInterp = !!report.result.dimension_interpretations?.length;
-    if (!hasInterp && !window.confirm('若报告尚未生成 AI 解读，会先自动补齐，可能需要几十秒，请勿关闭页面。是否继续？')) {
-      return;
-    }
+    setConfirmFullExport(true);
+  };
+
+  /** 确认区里点「确认导出」：收起确认区并真正发起完整版下载。 */
+  const confirmDownloadFull = () => {
+    setConfirmFullExport(false);
     void handleDownloadDocx('full');
   };
 
@@ -559,6 +566,32 @@ export default function ReportView({
           </Button>
         </div>
       </div>
+
+      {/* 完整版就地二次确认：不弹窗，避免安卓 WebView（Via 等）不弹原生 confirm 而卡死 */}
+      {confirmFullExport && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-xs print:hidden">
+          <span className="text-sky-900">
+            若报告尚未生成 AI 解读，会先自动补齐，可能需要几十秒，请勿关闭页面。
+          </span>
+          <span className="ml-auto flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={confirmDownloadFull}
+              className="rounded-md border border-primary bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground"
+            >
+              确认导出
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmFullExport(false)}
+              className="rounded-md border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground"
+            >
+              取消
+            </button>
+          </span>
+        </div>
+      )}
+
       {exportMsg && (
         <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800 print:hidden">
           {exportMsg}
