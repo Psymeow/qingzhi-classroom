@@ -1534,18 +1534,31 @@ function renderViewpoint(vp: LessonTypeViewpointResult): (Paragraph | Table)[] {
         pt.level_label ? t(`　${pt.level_label}`, { size: 20, color: levelColor(pt.level_label) }) : t(''),
       ]),
     );
-    if (pt.reason) out.push(bullet(`判定理由：${pt.reason}`, MUTED));
-    (pt.evidences ?? []).forEach((e, i) => {
+    // 三要素：①观察事实（逐条证据 + 来源出处）②判定理由；③未评/依据不足则如实说明，不编造（§1.3-3/§2）
+    const evs = pt.evidences ?? [];
+    evs.forEach((e, i) => {
       const src = pt.evidence_sources?.[i];
       const srcLabel = src ? (SOURCE_LABEL[src] ?? src) : '出处';
-      out.push(bullet(`${srcLabel}：${e}`, MUTED));
+      out.push(bullet(`观察事实（${srcLabel}）：${e}`, MUTED));
     });
-    if (!pt.reason && !(pt.evidences?.length)) {
+
+    if (pt.reason) {
+      out.push(bullet(`判定理由：${pt.reason}`, MUTED));
+    }
+
+    // 每个要点依据 ≥80 字；数据不足时不编造，如实标注缺口
+    const bodyLen = (pt.reason?.length ?? 0) + evs.join('').length;
+    if (pt.score === null) {
       out.push(
         bullet(
-          pt.score === null
-            ? '本次提交的材料中未找到该要点对应的课堂表现，故未评分，且不计入本视角均分；补充对应材料后可复核。'
-            : '本次未留下可引用的原文出处，该分由模型依据整体课堂表现判定，建议补充材料后复核。',
+          '未评分原因：本次提交的材料中未找到该要点对应的课堂表现，故未评分，且不计入本视角均分；补充对应材料后可复核。',
+          MUTED,
+        ),
+      );
+    } else if (bodyLen < 80) {
+      out.push(
+        bullet(
+          `依据不足：本次可引用的观察事实与判定理由合计 ${bodyLen} 字（低于 80 字目标），暂按 ${fmt(pt.score)} 分判定；建议补充课堂实录、观察记录或任务单材料后复核。`,
           MUTED,
         ),
       );
@@ -1630,12 +1643,23 @@ function renderEssenceDomain(
       ],
     ];
     ind.points.forEach((pt) => {
-      const status =
-        pt.score !== null ? '已评' : pt.missing_material ? '不可评（缺材料）' : '无表现（不计均分）';
-      const srcTxt = (pt.sources ?? []).map((s) => POINT_SRC[s] ?? s).join('、') || '—';
+      const srcLabels = (pt.sources ?? []).map((s) => POINT_SRC[s] ?? s);
+      const srcTxt = srcLabels.join('、') || '—';
+      let status: string;
+      let attribution = pt.definition || '';
+      if (pt.score !== null) {
+        status = '已评';
+        if (pt.reason) attribution += `归因：${pt.reason}`;
+      } else if (pt.missing_material) {
+        status = '不可评（缺材料）';
+        // §1.3-(4)：不可评必须写明「本次未提交 XX 材料，故不可评」，缺哪种材料从该点 sources 推出
+        attribution += `本次未提交${srcLabels.length ? srcLabels.join('、') : '对应'}材料，故不可评`;
+      } else {
+        status = '无表现（不计均分）';
+      }
       rows.push([
         bodyCell(pt.name || pt.code),
-        bodyCell([pt.definition, pt.reason ? `归因：${pt.reason}` : ''].filter(Boolean).join('；') || '—', { color: MUTED }),
+        bodyCell(attribution || '—', { color: MUTED }),
         bodyCell(srcTxt, { align: AlignmentType.CENTER, color: MUTED }),
         bodyCell(fmt(pt.score), { bold: true, color: scoreHex(pt.score), align: AlignmentType.CENTER }),
         bodyCell(status, { align: AlignmentType.CENTER, color: pt.score !== null ? '047857' : 'B45309' }),
