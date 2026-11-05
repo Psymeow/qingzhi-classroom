@@ -153,10 +153,11 @@ function h1(text: string, opts: { pageBreak?: boolean } = {}): Paragraph {
   return new Paragraph({
     heading: HeadingLevel.HEADING_1,
     pageBreakBefore: opts.pageBreak ?? false,
+    keepNext: true,
     spacing: { before: 360, after: 160 },
     border: { bottom: { style: BorderStyle.SINGLE, size: 12, color: BRAND, space: 4 } },
-    // §4 标题黑体
-    children: [t(text, { bold: true, size: 30, color: BRAND, font: '黑体' })],
+    // §3 标题黑体，一级 18pt（size 36）
+    children: [t(text, { bold: true, size: 36, color: BRAND, font: '黑体' })],
   });
 }
 
@@ -164,8 +165,9 @@ function h1(text: string, opts: { pageBreak?: boolean } = {}): Paragraph {
 function h2(text: string): Paragraph {
   return new Paragraph({
     heading: HeadingLevel.HEADING_2,
+    keepNext: true,
     spacing: { before: 240, after: 120 },
-    children: [t(text, { bold: true, size: 26, color: INK, font: '黑体' })],
+    children: [t(text, { bold: true, size: 28, color: INK, font: '黑体' })],
   });
 }
 
@@ -173,6 +175,7 @@ function h2(text: string): Paragraph {
 function h3(text: string, color: string = INK): Paragraph {
   return new Paragraph({
     heading: HeadingLevel.HEADING_3,
+    keepNext: true,
     spacing: { before: 180, after: 80 },
     children: [t(text, { bold: true, size: 24, color, font: '黑体' })],
   });
@@ -295,24 +298,31 @@ function table(weights: number[], rows: TableCell[][], opts: { header?: boolean 
   // 一列独大、其余挤扁竖排。所以这里把 widths 按列序注入到每一个 TableCell。
   // 注入在本函数内完成，表头与数据走的是同一份 widths 的同一个下标，天然对齐。
   const trs = rows.map((row, rowIdx) => {
+    // §3 斑马纹：仅带表头的数据表，对第 2、4、6… 数据行加浅灰底；已手动设底纹的单元格不覆盖
+    const zebra = header && rowIdx > 0 && rowIdx % 2 === 0;
     let col = 0;
     const cells = row.map((cell) => {
       const span = Math.max(1, cell.options.columnSpan ?? 1);
       // 合并列占多格时宽度累加，保证整行仍然铺满版心
       const w = widths.slice(col, col + span).reduce((a, b) => a + b, 0);
       col += span;
+      // 斑马纹：无底纹的单元格重新构造并加浅灰底，保留原有 span/边距/边框/对齐
+      const target =
+        zebra && !cell.options.shading
+          ? new TableCell({ ...cell.options, shading: { type: ShadingType.SOLID, color: ZEBRA_BG } })
+          : cell;
       // docx 的 properties 在类型上标为 private，但运行时是公开实例，且 setColumnWidth
       // 是官方暴露的列宽入口（会正确产出 w:tcW）。这里断言，避免为此复制一遍 TableCell。
       (
-        cell as unknown as {
+        target as unknown as {
           properties: {
             setColumnWidth: (size: number, type: (typeof WidthType)[keyof typeof WidthType]) => void;
           };
         }
       ).properties.setColumnWidth(w, WidthType.DXA);
-      return cell;
+      return target;
     });
-    // cantSplit：单元格不跨页断裂（§4 表格形态要求）
+    // cantSplit：单元格不跨页断裂（§3 表格形态要求）
     return new TableRow({ children: cells, tableHeader: header && rowIdx === 0, cantSplit: true });
   });
   return new Table({
@@ -1218,6 +1228,9 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
     }),
   );
 
+  // 页脚学校·班级（用字段，非死数字；缺省不显示）
+  const schoolClass = [input.lessonMeta?.school, input.lessonMeta?.grade_class].filter(Boolean).join(' · ');
+
   const doc = new Document({
     creator: '情智相长课堂分析工作台',
     title: `${input.lessonTitle} · 课堂情智相长分析报告`,
@@ -1225,7 +1238,7 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
     styles: {
       default: {
         document: {
-          run: { font: { ascii: '宋体', hAnsi: '宋体', eastAsia: '宋体', cs: '宋体' }, size: 24, color: INK },
+          run: { font: { ascii: 'Times New Roman', hAnsi: 'Times New Roman', eastAsia: '宋体', cs: '宋体' }, size: 24, color: INK },
           paragraph: { spacing: { line: 360 } },
         },
       },
@@ -1256,6 +1269,7 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
                     size: 16,
                     color: MUTED,
                   }),
+                  t('　·　内部资料，仅用于教学改进', { size: 16, color: MUTED }),
                 ],
               }),
             ],
@@ -1267,6 +1281,7 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
               new Paragraph({
                 alignment: AlignmentType.CENTER,
                 children: [
+                  ...(schoolClass ? [t(`${schoolClass}　　`, { size: 18, color: MUTED })] : []),
                   t('第 ', { size: 18, color: MUTED }),
                   new TextRun({ children: [PageNumber.CURRENT], size: 18, color: MUTED }),
                   t(' 页 / 共 ', { size: 18, color: MUTED }),
