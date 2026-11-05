@@ -4,8 +4,6 @@ name = "qingzhi-classroom"
 requires = [ "nodejs-24" ]
 project_type = "web"
 version = "0.1.9"
-project_id = "7699073508965515298"
-app_id = "7703914468035788810"
 
 [preview]
 preview_enable = "enabled"
