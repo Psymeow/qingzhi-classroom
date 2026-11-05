@@ -897,9 +897,9 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
   const seating = input.seating ?? null;
   const interactions = input.interactions ?? [];
 
-  /** 学生姓名展示：姓名 → 学号 → 事实说明；绝不回落到内部座位 ID（§4.4）。 */
-  const studentLabel = (s: { name?: string | null; student_no?: string | null }): string =>
-    s.name || s.student_no || '（未录入姓名）';
+  /** 学生姓名展示：优先真实姓名；取不到姓名时用座位位置「学生（第N排第M列）」，绝不回落到 s_x_y 内部座位 ID（§4.4）。 */
+  const studentLabel = (s: SeatStudent): string =>
+    s.name || `学生（第${s.row + 1}排第${s.col + 1}列）`;
 
   /* ---- 表 4-1 座位布局 ---- */
   if (seating && seating.students.length) {
