@@ -540,7 +540,7 @@ export default function ReportView({
                 {exportingDocx ? '生成中…' : '下载精简版报告'}
               </Button>
               <Button
-                variant="outline"
+                variant="default"
                 size="sm"
                 disabled={exportingDocx}
                 onClick={handleDownloadFull}
@@ -552,6 +552,10 @@ export default function ReportView({
                   <FileText className="mr-2 h-4 w-4" />
                 )}
                 {exportingDocx ? '生成中…' : '下载完整版报告'}
+                {/* 首选下载标识：与两侧 outline 次级按钮形成主次对比 */}
+                <span className="ml-1 rounded bg-primary-foreground/20 px-1 py-px text-[10px] font-normal leading-none">
+                  推荐
+                </span>
               </Button>
             </>
           )}
