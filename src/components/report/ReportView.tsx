@@ -10,7 +10,6 @@ const ReportRadar = dynamic(() => import('@/components/report/ReportRadar'), {
 });
 import {
   Loader2,
-  FileDown,
   Printer,
   AlertTriangle,
   Users,
@@ -556,9 +555,6 @@ export default function ReportView({
               </Button>
             </>
           )}
-          <Button variant="outline" size="sm" onClick={handleDownloadHtml} title="下载独立网页报告，打开后可用浏览器「另存为 PDF」；折叠内容可能缺失，完整版请用「下载 Word」">
-            <FileDown className="mr-2 h-4 w-4" /> 下载报告
-          </Button>
           <Button variant="outline" size="sm" asChild title="一页 A4 速读，可直接打印或放进档案袋">
             <Link href={`/lessons/${lessonId}/onepage`} target="_blank" rel="noopener">
               <FileText className="mr-2 h-4 w-4" /> 单页版
