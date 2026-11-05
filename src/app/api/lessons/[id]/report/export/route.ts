@@ -50,20 +50,20 @@ async function autoFillInterpretations(
   if (dimRes.status === 'fulfilled' && dimRes.value) {
     filled = { ...filled, dimension_interpretations: dimRes.value };
     wroteBack = true;
-    notes.push(`已为本报告自动补齐 ${dimRes.value.length} 条五维解读。`);
+    notes.push(`已自动补齐 ${dimRes.value.length} 个维度的 AI 维度解读（看什么/判几分及原因/证据在哪/怎么改），已保存。`);
   } else if (dimRes.status === 'rejected') {
     const msg = dimRes.reason instanceof LlmError ? dimRes.reason.message : '维度解读生成失败';
-    notes.push(`五维解读未能补齐（${msg}），本次导出沿用现有内容。`);
+    notes.push(`AI 维度解读未补齐（${msg}），本次导出沿用现有内容，未保存。`);
     console.warn('[export-docx] 维度解读补齐失败：', dimRes.reason);
   }
 
   if (essRes.status === 'fulfilled' && essRes.value) {
     filled = { ...filled, essence_interpretations: essRes.value };
     wroteBack = true;
-    notes.push('已为本报告自动补齐认知/情感内涵解读。');
+    notes.push('已自动补齐 2 个域（认知、情感）的内涵解读，已保存。');
   } else if (essRes.status === 'rejected') {
     const msg = essRes.reason instanceof LlmError ? essRes.reason.message : '内涵解读生成失败';
-    notes.push(`内涵解读未能补齐（${msg}），本次导出沿用现有内容。`);
+    notes.push(`认知/情感内涵解读未补齐（${msg}），本次导出沿用现有内容，未保存。`);
     console.warn('[export-docx] 内涵解读补齐失败：', essRes.reason);
   }
 
@@ -133,7 +133,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
         report = filled.report;
         autoFillNotes = filled.notes;
       } else {
-        autoFillNotes = ['AI 服务未配置，本次导出未生成解读章节。'];
+        autoFillNotes = ['AI 服务未配置，本次未补齐任何域的解读（0 个域），未生成也未保存。'];
       }
     }
 

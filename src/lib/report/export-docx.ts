@@ -15,6 +15,7 @@ import {
   TableRow,
   TableLayoutType,
   TextRun,
+  UnderlineType,
   VerticalAlign,
   WidthType,
   type IParagraphOptions,
@@ -22,8 +23,11 @@ import {
 } from 'docx';
 import type {
   AnalysisReport,
+  DataSource,
+  DimensionInterpretation,
   DimensionResult,
   EssenceIndicatorResult,
+  EvidenceReading,
   LessonTypeViewpointResult,
   ScoreBand,
 } from '@/lib/evaluation/types';
@@ -43,8 +47,8 @@ import type {
 } from '@/lib/evaluation/annotation-types';
 import type { DimMeta } from '@/components/annotation/DimensionScores';
 import { deriveEssenceHeadline, STATE_META } from '@/lib/report/essence-headline';
-import { METHODOLOGY_NOTE, collectBibliography } from '@/lib/report/theory-anchors';
-import { nearestTimestamp, speakerAt } from '@/lib/report/locate';
+import { METHODOLOGY_NOTE, THEORY_ANCHORS, collectBibliography } from '@/lib/report/theory-anchors';
+import { locateQuote, nearestTimestamp, speakerAt } from '@/lib/report/locate';
 
 /* ------------------------------------------------------------------ *
  * 报告 Word 导出（服务端生成 .docx）
@@ -97,6 +101,18 @@ const CN_NUM = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '
 
 const fmt = (v: number | null | undefined, digits = 1): string =>
   v === null || v === undefined || Number.isNaN(v) ? '—' : v.toFixed(digits);
+
+/**
+ * 第三章证据分组名（§1.4 固定五组，课堂上真实发生的排前面，教案排最后）。
+ * 与 SOURCE_LABEL 分开：后者是全站共享的数据常量，这里的长标签只服务导出件的可读性。
+ */
+const SOURCE_GROUP_LABEL: Record<DataSource, string> = {
+  av_transcript: '课堂实录 · 师生原话',
+  task_sheet: '学生任务单 · 学生作答',
+  observer_note: '观察员记录 · 听课笔记',
+  lesson_plan: '教学设计 · 课前教案',
+  manual_annotation: '人工标注',
+};
 
 /**
  * 判定姓名字段是否形如登录账号（全 ASCII 且无空格，如 xujingwei0602 / user@example.com）。
@@ -307,12 +323,37 @@ function table(weights: number[], rows: TableCell[][], opts: { header?: boolean 
   });
 }
 
-function headCell(text: string, span?: number, align?: (typeof AlignmentType)[keyof typeof AlignmentType]): TableCell {
-  return cell([new Paragraph({ spacing: { after: 0, line: 280 }, alignment: align, children: [t(text, { bold: true, color: '3730A3', size: 19 })] })], { bg: HEAD_BG, span, align });
+function headCell(
+  text: string,
+  span?: number,
+  align?: (typeof AlignmentType)[keyof typeof AlignmentType],
+  size = 21,
+): TableCell {
+  return cell([new Paragraph({ spacing: { after: 0, line: 280 }, alignment: align, children: [t(text, { bold: true, color: '3730A3', size })] })], { bg: HEAD_BG, span, align });
 }
 
-function bodyCell(text: string, opts: { bold?: boolean; color?: string; bg?: string; span?: number; align?: (typeof AlignmentType)[keyof typeof AlignmentType] } = {}): TableCell {
-  return cell([new Paragraph({ spacing: { after: 0, line: 280 }, alignment: opts.align, children: [t(text, { bold: opts.bold, color: opts.color ?? INK, size: 19 })] })], { bg: opts.bg, span: opts.span, align: opts.align });
+function bodyCell(
+  text: string,
+  opts: {
+    bold?: boolean;
+    color?: string;
+    bg?: string;
+    span?: number;
+    align?: (typeof AlignmentType)[keyof typeof AlignmentType];
+    /** 表格字号（半磅）。常规 21 = 10.5pt；密集表 18 = 9pt（§3.2.3） */
+    size?: number;
+  } = {},
+): TableCell {
+  return cell(
+    [
+      new Paragraph({
+        spacing: { after: 0, line: 280 },
+        alignment: opts.align,
+        children: [t(text, { bold: opts.bold, color: opts.color ?? INK, size: opts.size ?? 21 })],
+      }),
+    ],
+    { bg: opts.bg, span: opts.span, align: opts.align },
+  );
 }
 
 /** 档位文字色（中文档位名） */
@@ -463,8 +504,11 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
    * ================================================================= */
   setTableChapter(1);
   children.push(h1('一、一眼看这课'));
+  // §1.2-1 章节导语：一句话说明本章回答什么问题
+  children.push(hint('本章回答一件事：这节课整体怎么样、情感与认知哪一侧更重、最该先改哪一处。'));
 
   if (input.autoFillNotes?.length) {
+    // §1.2-10 补齐标注须写明补齐几个域、是否已保存
     input.autoFillNotes.forEach((n) => children.push(notice(n, 'EFF6FF', '1D4ED8')));
     children.push(new Paragraph({ spacing: { after: 120 }, children: [] }));
   }
@@ -612,7 +656,7 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
     ]),
   );
 
-  // 五维评分总表
+  // 五维评分总表（§1.3-(1) 列固定：维度 / 权重 / 得分 / 等级 / 指标覆盖 / 待复核）
   children.push(caption('五维评分总表'));
   const dimRows: TableCell[][] = [
     [
@@ -620,15 +664,20 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
       headCell('权重', undefined, AlignmentType.CENTER),
       headCell('得分', undefined, AlignmentType.CENTER),
       headCell('等级', undefined, AlignmentType.CENTER),
+      headCell('指标覆盖', undefined, AlignmentType.CENTER),
       headCell('待复核', undefined, AlignmentType.CENTER),
     ],
   ];
   report.dimension_results.forEach((d) => {
+    // 指标覆盖 = 已评二级指标 ÷ 该维度二级指标总数；D1/D4/D5 无二级指标时显示 —
+    const inds = d.indicators ?? [];
+    const scoredInd = inds.filter((x) => x.score !== null).length;
     dimRows.push([
       bodyCell(dimName(d.dimension_code)),
       bodyCell(`${Math.round((report.source_weights?.[d.dimension_code as never] ?? 0) * 100)}%`, { align: AlignmentType.CENTER }),
       bodyCell(d.score === null ? '—' : d.score.toFixed(1), { bold: true, color: scoreHex(d.score), align: AlignmentType.CENTER }),
       bodyCell(d.level_label ?? '—', { color: levelColor(d.level_label), align: AlignmentType.CENTER }),
+      bodyCell(inds.length ? `${scoredInd} / ${inds.length}` : '—', { align: AlignmentType.CENTER, color: inds.length && scoredInd < inds.length ? 'B45309' : MUTED }),
       bodyCell(d.need_review ? '待复核' : '—', { color: d.need_review ? 'B45309' : MUTED, align: AlignmentType.CENTER }),
     ]);
   });
@@ -637,9 +686,16 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
     bodyCell('100%', { bold: true, bg: ZEBRA_BG, align: AlignmentType.CENTER }),
     bodyCell(input.totalScore.toFixed(1), { bold: true, bg: ZEBRA_BG, color: scoreHex(input.totalScore / 10), align: AlignmentType.CENTER }),
     bodyCell(input.totalLevel ?? '—', { bold: true, bg: ZEBRA_BG, color: levelColor(input.totalLevel), align: AlignmentType.CENTER }),
+    bodyCell(
+      (() => {
+        const all = report.dimension_results.flatMap((x) => x.indicators ?? []);
+        return all.length ? `${all.filter((x) => x.score !== null).length} / ${all.length}` : '—';
+      })(),
+      { bold: true, bg: ZEBRA_BG, align: AlignmentType.CENTER },
+    ),
     bodyCell('—', { bg: ZEBRA_BG, align: AlignmentType.CENTER }),
   ]);
-  children.push(table([3000, 1100, 1300, 2200, 2400], dimRows));
+  children.push(table([2600, 950, 1250, 1800, 1700, 1700], dimRows));
   children.push(new Paragraph({ spacing: { after: 160 }, children: [] }));
 
   // 人工终裁留痕（完整版）
@@ -666,10 +722,16 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
     children.push(table([1800, 1200, 1200, 2400, 3400], calRows));
   }
 
-  // 逐维：精简版只出「得分 + 等级」；完整版出二级指标表 + 理论依据 + 四段解读
+  // 逐维：精简版只出「得分 + 等级」；完整版出二级指标表 + 关键证据 + 理论依据 + 四段解读
   report.dimension_results.forEach((d, i) => {
     if (isFull) {
-      children.push(...renderDimension(d, i, dimName, indicatorName));
+      children.push(
+        ...renderDimension(d, i, dimName, indicatorName, {
+          interp: report.dimension_interpretations?.find((x) => x.dimension_code === d.dimension_code),
+          materials: input.materials ?? null,
+          readings: report.evidence_readings ?? [],
+        }),
+      );
       return;
     }
     children.push(
@@ -759,8 +821,12 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
         ),
         new Paragraph({ spacing: { after: 160 }, children: [] }),
       );
-      children.push(...renderEssenceDomain(ee.cognitive, '认知 · 数学高阶思维'));
-      children.push(...renderEssenceDomain(ee.affective, '情感 · 数学情感素养'));
+      const essOf = (code: string): DimensionInterpretation | undefined =>
+        report.essence_interpretations?.find((x) => x.dimension_code === code);
+      children.push(
+        ...renderEssenceDomain(ee.cognitive, '认知 · 数学高阶思维', { interp: essOf('cognitive'), materials: input.materials ?? null }),
+        ...renderEssenceDomain(ee.affective, '情感 · 数学情感素养', { interp: essOf('affective'), materials: input.materials ?? null }),
+      );
     } else {
       children.push(notice('本课例未生成认知·情感观察点：需包含课堂转写文稿并开启 AI 深度分析后运行。'));
     }
@@ -788,28 +854,34 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
     const dimEv = (d.evidences ?? []).filter(Boolean);
     if (!groups.length && !dimEv.length) return;
     hasEvidence = true;
-    children.push(h3(`${CN_NUM[i] ?? i + 1}. ${dimName(d.dimension_code)}（${d.score === null ? '未评' : `${d.score.toFixed(1)} 分`}）`));
-    if (dimEv.length) {
-      dimEv.forEach((e) => children.push(bullet(`维度证据：${e}`, MUTED)));
-    }
-    groups.forEach((s) => {
-      children.push(
-        p([
-          t(`${SOURCE_LABEL[s.source] ?? s.source}`, { bold: true, size: 21, color: BRAND }),
-          t(`　${fmt(s.score)} / 10　置信 ${Math.round((s.confidence ?? 0) * 100)}%`, { size: 21, color: MUTED }),
-        ]),
-      );
-      // 精简版每维只留前 3 条；完整版全量
-      const evs = isFull ? s.evidences : s.evidences.slice(0, 3);
-      evs.forEach((e) => {
-        const rd = readingOf(d.dimension_code, e);
-        children.push(bullet(e));
-        if (rd) children.push(bullet(`解读：${rd}`, MUTED, 720));
+    const judge = `支撑「${dimName(d.dimension_code)}」的判定`;
+    children.push(
+      h3(`${CN_NUM[i] ?? i + 1}. ${dimName(d.dimension_code)}（${d.score === null ? '未评' : `${d.score.toFixed(1)} 分`}）`),
+    );
+
+    if (groups.length) {
+      // §1.4 证据按来源分组，组名固定；每组至少 1 条（已按 evidences.length>0 过滤）
+      groups.forEach((s) => {
+        children.push(
+          p([
+            t(SOURCE_GROUP_LABEL[s.source] ?? SOURCE_LABEL[s.source] ?? s.source, { bold: true, size: 21, color: BRAND }),
+            t(`　${fmt(s.score)} / 10　置信 ${Math.round((s.confidence ?? 0) * 100)}%`, { size: 21, color: MUTED }),
+          ]),
+        );
+        // 精简版每维只留前 3 条；完整版全量
+        const evs = isFull ? s.evidences : s.evidences.slice(0, 3);
+        evs.forEach((e) => {
+          const rd = readingOf(d.dimension_code, e);
+          children.push(evidenceLine(s.source, e, input.materials ?? null, rd || judge));
+        });
+        if (!isFull && s.evidences.length > 3) {
+          children.push(bullet(`（该来源另有 ${s.evidences.length - 3} 条证据，见完整版报告）`, MUTED, 720));
+        }
       });
-      if (!isFull && s.evidences.length > 3) {
-        children.push(bullet(`（该来源另有 ${s.evidences.length - 3} 条证据，见完整版报告）`, MUTED, 720));
-      }
-    });
+    } else {
+      // 无来源分组时的回退：仍逐条给出时间码与出处，不用裸列表
+      dimEv.forEach((e) => children.push(evidenceLine('manual_annotation', e, input.materials ?? null, judge)));
+    }
   });
   if (!hasEvidence) {
     children.push(notice('本次分析未留下可引用的原文证据：可能只有人工标注，或各来源材料均无有效摘录。'));
@@ -820,9 +892,14 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
    * ================================================================= */
   setTableChapter(4);
   children.push(h1('四、课堂现场与材料', { pageBreak: true }));
+  children.push(hint('本章说明这节课的现场数据从哪来、覆盖哪些材料，以及座位、互动与关键事件的客观标注。'));
 
   const seating = input.seating ?? null;
   const interactions = input.interactions ?? [];
+
+  /** 学生姓名展示：姓名 → 学号 → 事实说明；绝不回落到内部座位 ID（§4.4）。 */
+  const studentLabel = (s: { name?: string | null; student_no?: string | null }): string =>
+    s.name || s.student_no || '（未录入姓名）';
 
   /* ---- 表 4-1 座位布局 ---- */
   if (seating && seating.students.length) {
@@ -839,7 +916,10 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
       p(
         (['leader', 'participant', 'observer'] as const).map((r) =>
           t(`${STUDENT_ROLE_META[r].symbol} ${STUDENT_ROLE_META[r].name}　`, { size: 19, color: MUTED }),
-        ).concat([t('空白格为未安排座位', { size: 19, color: MUTED })]),
+        ).concat([
+          t('无符号 = 该生未标注角色　', { size: 19, color: MUTED }),
+          t('空位 = 未安排座位', { size: 19, color: MUTED }),
+        ]),
       ),
     );
 
@@ -856,7 +936,7 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
         } else {
           const meta = s.role ? STUDENT_ROLE_META[s.role] : null;
           rowCells.push(
-            bodyCell(`${meta ? `${meta.symbol} ` : ''}${s.name ?? s.student_no ?? '未命名'}`, {
+            bodyCell(`${meta ? `${meta.symbol} ` : ''}${studentLabel(s)}`, {
               align: AlignmentType.CENTER,
               color: meta ? INK : MUTED,
             }),
@@ -874,11 +954,14 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
   if (interactions.length) {
     children.push(h3('互动连线清单（从哪张座位连到哪张座位）'));
     const seatById = new Map((seating?.students ?? []).map((s) => [s.seat_id, s]));
+    /**
+     * 互动两端的展示名。必须解析成姓名/学号；解析不出时给事实说明，
+     * 绝不回落到 `s_x_y` 这类内部座位 ID（§4.4 明令禁止）。
+     */
     const seatLabel = (id: string): string => {
       const s = seatById.get(id);
-      if (!s) return id;
-      if (s.name) return s.name;
-      return s.student_no ?? id;
+      if (!s) return '（座位不在本次排布中）';
+      return studentLabel(s);
     };
     children.push(caption('互动连线清单'));
     const intRows: TableCell[][] = [
@@ -1038,6 +1121,12 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
     } else if (input.bandSourceNote) {
       children.push(hint(input.bandSourceNote));
     }
+    // 适用维度须写明（§1.6）：档位由绑定标准给出、非分维度数据，故为全维度适用
+    children.push(
+      hint(
+        `适用维度：本档位由绑定标准给出，适用于本报告全部五个维度（${input.dimensions.map((d) => d.name).join('、')}）。`,
+      ),
+    );
     children.push(caption('评分档位说明'));
     const bandRows: TableCell[][] = [
       [
@@ -1060,8 +1149,18 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
     setTableChapter('B');
     children.push(h1('附录 B　理论依据与参考文献', { pageBreak: true }));
     children.push(p('本评价模型的五个维度并非经验性设定，其构念效度与权重依据可追溯至下列文献。'));
+    // 悬挂缩进：编号悬挂在外，续行对齐到文字起始处（§1.7）
     collectBibliography(report.dimension_results.map((d) => d.dimension_code)).forEach((r, i) =>
-      children.push(bullet(`${i + 1}. ${r}`, MUTED)),
+      children.push(
+        new Paragraph({
+          indent: { left: 480, hanging: 480 },
+          spacing: { after: 60, line: 320 },
+          children: [
+            t(`${i + 1}. `, { size: 21, color: MUTED, font: 'Calibri' }),
+            t(r, { size: 21, color: MUTED }),
+          ],
+        }),
+      ),
     );
     children.push(h3('方法学说明'));
     children.push(p(METHODOLOGY_NOTE));
@@ -1077,18 +1176,38 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
   );
 
   /* ---------------- 落款 ---------------- */
+  // §1.1：报告生成人须输出（取值失败写「未填写」，不得留下划线占位）；
+  // §4.3：`＿＿＿＿` 属模板残留占位，签名栏改用下划边框留出书写位。
+  const blank = (w: string): TextRun =>
+    new TextRun({
+      text: w,
+      size: 18,
+      underline: { type: UnderlineType.SINGLE, color: '9CA3AF' },
+    });
   children.push(
     new Paragraph({
       spacing: { before: 320, after: 0 },
       border: { top: { style: BorderStyle.SINGLE, size: 4, color: LINE, space: 8 } },
       children: [
-        t(`学校：${input.lessonMeta?.school || '＿＿＿＿＿'}　　班级：${input.lessonMeta?.grade_class || '＿＿＿＿＿'}　　授课教师：${input.lessonMeta?.teacher_name || '＿＿＿＿＿'}`, { size: 18, color: MUTED }),
+        t(
+          `学校：${input.lessonMeta?.school || '未填写'}　　班级：${input.lessonMeta?.grade_class || '未填写'}　　授课教师：${input.lessonMeta?.teacher_name || '未填写'}`,
+          { size: 18, color: MUTED },
+        ),
       ],
     }),
     new Paragraph({
       spacing: { before: 60, after: 0 },
       children: [
-        t(`评价人（签名）：＿＿＿＿＿＿＿＿　　日期：＿＿＿＿年＿＿月＿＿日`, { size: 18, color: MUTED }),
+        t(`报告生成人：${displayNameOrMask(input.exporterName)}`, { size: 18, color: MUTED }),
+      ],
+    }),
+    new Paragraph({
+      spacing: { before: 140, after: 0 },
+      children: [
+        t('评价人（签名）：', { size: 18, color: MUTED }),
+        blank('　　　　　　　　'),
+        t('　　日期：', { size: 18, color: MUTED }),
+        blank('　　　　　　　　　　　　　　　　　'),
       ],
     }),
     new Paragraph({
@@ -1166,14 +1285,72 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
   return (await Packer.toBuffer(doc)) as Buffer;
 }
 
+/**
+ * 取某来源的材料原文（用于把证据定位回时间码与说话人）。
+ * 找不到就返回空串——定位不到就不写时间码，绝不编造（§4.1）。
+ */
+function materialTextFor(source: DataSource, materials: ExportDocxInput['materials']): string {
+  if (!materials) return '';
+  switch (source) {
+    case 'av_transcript':
+      return materials.transcript ?? '';
+    case 'observer_note':
+      return materials.observer ?? '';
+    case 'task_sheet':
+      return materials.taskSheet ?? '';
+    case 'lesson_plan':
+      return materials.lessonPlan ?? '';
+    default:
+      return '';
+  }
+}
+
+/**
+ * 证据一行（§1.3-2 / §1.4）：时间码 + 说话人或材料出处 + 原话摘引 + 指向的判断。
+ *
+ * 时间码与说话人通过 locateQuote 在真实材料里回查得到；回查不到就不写该段，
+ * 不用占位、不用编造。原话按引号呈现，便于与解读区分。
+ */
+function evidenceLine(
+  source: DataSource,
+  quote: string,
+  materials: ExportDocxInput['materials'],
+  judge: string,
+): Paragraph {
+  const isTranscript = source === 'av_transcript';
+  const hay = materialTextFor(source, materials);
+  const hit = hay && quote ? locateQuote(hay, quote) : null;
+  const time = hit && isTranscript ? nearestTimestamp(hay, hit.start) : null;
+  const speaker = hit && isTranscript ? speakerAt(hay, hit.start) : null;
+
+  const runs: TextRun[] = [];
+  if (time) runs.push(t(`${time} `, { bold: true, size: 22, color: BRAND }));
+  // 说话人（转写行内）或材料出处（非转写来源）
+  const who = speaker ?? (isTranscript ? null : (SOURCE_LABEL[source] ?? source));
+  if (who) runs.push(t(`${who}　`, { size: 22, color: MUTED }));
+  runs.push(t(`「${quote}」`, { size: 22 }));
+  if (judge) runs.push(t(`　→ ${judge}`, { size: 21, color: MUTED }));
+
+  return new Paragraph({
+    indent: { left: 360 },
+    spacing: { after: 60, line: 360 },
+    children: [t('■ ', { color: BRAND, size: 12 }), ...runs],
+  });
+}
+
 /* ------------------------------------------------------------------ *
- * 维度块：得分 + 二级指标表 + 维度级 AI 解读
+ * 维度块：得分 + 二级指标表 + 关键证据 + 理论依据 + 维度级 AI 解读
  * ------------------------------------------------------------------ */
 function renderDimension(
   d: DimensionResult,
   index: number,
   dimName: (code: string) => string,
   indicatorName: (code: string, fallback?: string) => string,
+  ctx: {
+    interp?: DimensionInterpretation;
+    materials: ExportDocxInput['materials'];
+    readings: EvidenceReading[];
+  },
 ): (Paragraph | Table)[] {
   const out: (Paragraph | Table)[] = [];
   const label = `${CN_NUM[index] ?? index + 1}. ${dimName(d.dimension_code)}`;
@@ -1220,14 +1397,90 @@ function renderDimension(
     out.push(table([5200, 1800, 3000], rows));
   }
 
-  // 维度级证据
-  const evs = (d.evidences ?? []).filter(Boolean);
-  if (evs.length) {
-    out.push(h3('证据摘要', MUTED));
-    evs.slice(0, 6).forEach((e) => out.push(bullet(e, MUTED)));
+  // ---- 关键证据 2–4 条（§1.3-2：时间码 + 说话人/出处 + 原话≥10字 + 支撑判断）----
+  const cands: Array<{ source: DataSource; quote: string; judge: string }> = [];
+  const seenQuote = new Set<string>();
+  const addCand = (source: DataSource, quote: string, judge: string) => {
+    const q = quote.trim();
+    if (!q || seenQuote.has(q)) return;
+    seenQuote.add(q);
+    cands.push({ source, quote: q, judge });
+  };
+  // ① 指标级证据优先：能写明「支撑了哪个二级指标」
+  for (const ind of d.indicators ?? []) {
+    const indLabel = indicatorName(ind.indicator_code, ind.name);
+    for (const s of ind.source_scores ?? []) {
+      for (const e of s.evidences ?? []) addCand(s.source, e, `支撑「${indLabel}」的判定`);
+    }
+  }
+  // ② 维度级证据（D1/D4/D5 无二级指标时的唯一来源）
+  for (const s of d.source_scores ?? []) {
+    for (const e of s.evidences ?? []) addCand(s.source, e, `支撑「${dimName(d.dimension_code)}」的判定`);
+  }
+
+  const rankOf = (c: { source: DataSource; quote: string }): number =>
+    (c.source === 'av_transcript' ? 0 : 2) + (ctx.readings.some((r) => r.quote === c.quote) ? 0 : 1);
+  const picked = [...cands].sort((a, b) => rankOf(a) - rankOf(b)).slice(0, 4);
+  if (picked.length) {
+    out.push(h3('关键证据', MUTED));
+    picked.forEach((c) => {
+      // 「指向的判断」优先用逐条解读（AI 已写明为何支撑该分），否则用指标/维度名
+      const reading = ctx.readings.find((r) => r.dimension_code === d.dimension_code && r.quote === c.quote)?.reading;
+      out.push(evidenceLine(c.source, c.quote, ctx.materials, reading || c.judge));
+    });
+  }
+
+  // ---- 理论依据（§1.3-2：1–2 句，引用文献与附录 B 对应）----
+  const anchor = THEORY_ANCHORS[d.dimension_code];
+  if (anchor) {
+    const cite = citeOf(anchor.bibliography);
+    out.push(h3('理论依据', MUTED));
+    out.push(
+      p([
+        t(anchor.claim, { size: 22 }),
+        ...(cite ? [t(`　（依据见附录 B：${cite}）`, { size: 20, color: MUTED })] : []),
+      ]),
+    );
+  }
+
+  // ---- AI 维度解读：四段式 ≥300 字（§1.3-2 / §2）----
+  if (ctx.interp) {
+    out.push(h3('AI 维度解读', BRAND));
+    out.push(hint('四段式：这个维度看什么 → 这课判成几分及原因 → 证据落在哪里 → 下一步怎么改。'));
+    const segs: Array<[string, string]> = [
+      ['这个维度看什么', ctx.interp.how_to_read],
+      ['这课判成几分、为什么', ctx.interp.why],
+      ['证据落在哪里', ctx.interp.basis],
+      ['下一步怎么改', ctx.interp.how_to_improve],
+    ];
+    let segLen = 0;
+    segs.forEach(([label, text]) => {
+      if (!text) return;
+      segLen += text.length;
+      out.push(
+        p([
+          t(`${label}：`, { bold: true, size: 22, color: INK, font: '黑体' }),
+          t(text, { size: 22 }),
+        ]),
+      );
+    });
+    if (segLen < 300) {
+      out.push(hint(`（本段解读共 ${segLen} 字，低于目标 300 字；内容由模型生成，导出不作补写。）`));
+    }
+  } else {
+    out.push(notice('本维度的 AI 解读尚未生成，本次导出未能补齐；可在报告页「解读」处重试生成。'));
   }
 
   return out;
+}
+
+/** 文献首条 → 文内引用（第一作者 + 年份），与附录 B 的题录一一对应 */
+function citeOf(bib?: string[]): string {
+  const first = bib?.[0];
+  if (!first) return '';
+  const year = /\((\d{4})\)/.exec(first)?.[1] ?? '';
+  const surname = first.split(',')[0].trim();
+  return surname && year ? `${surname}, ${year}` : surname;
 }
 
 /* ------------------------------------------------------------------ *
@@ -1247,34 +1500,57 @@ function renderViewpoint(vp: LessonTypeViewpointResult): (Paragraph | Table)[] {
   );
 
   const scored = vp.points.filter((x) => x.score !== null).length;
-  const rows: TableCell[][] = [[headCell('编号', undefined, AlignmentType.CENTER), headCell('要点'), headCell('得分', undefined, AlignmentType.CENTER), headCell('等级', undefined, AlignmentType.CENTER)]];
+  // §1.3-(3) 要点表列固定：编号 / 要点 / 判定标准 / 得分 / 等级（判定标准不可省）
+  const rows: TableCell[][] = [
+    [
+      headCell('编号', undefined, AlignmentType.CENTER),
+      headCell('要点'),
+      headCell('判定标准'),
+      headCell('得分', undefined, AlignmentType.CENTER),
+      headCell('等级', undefined, AlignmentType.CENTER),
+    ],
+  ];
   vp.points.forEach((pt) => {
     rows.push([
       bodyCell(String(pt.no), { align: AlignmentType.CENTER, color: MUTED }),
       bodyCell(pt.name),
+      bodyCell(pt.definition || '—', { color: MUTED }),
       bodyCell(fmt(pt.score), { bold: true, color: scoreHex(pt.score), align: AlignmentType.CENTER }),
       bodyCell(pt.level_label ?? '—', { color: levelColor(pt.level_label), align: AlignmentType.CENTER }),
     ]);
   });
-  // 编号列只有 1/2/3，权重给足即可——但不能太低，太低会被归一化压到 900 以下，
-  // 中文表头「编号」两个字会被挤成竖排。950/9100 ≈ 1034 twips，约容 4 个汉字。
-  out.push(table([950, 5550, 1100, 1500], rows));
+  out.push(table([700, 2300, 4200, 950, 1150], rows));
 
-  // 有理有据：只列有理由或有证据的要点，避免整表冗长
-  const explained = vp.points.filter((x) => x.reason || (x.evidences?.length ?? 0) > 0);
-  if (explained.length) {
-    out.push(h3('判定理由与依据', MUTED));
-    explained.forEach((pt) => {
-      out.push(
-        p([
-          t(`${pt.no}. ${pt.name}`, { bold: true, size: 19 }),
-          t(pt.score === null ? '　（未找到表现依据）' : `　${fmt(pt.score)} 分`, { size: 19, color: MUTED }),
-        ]),
-      );
-      if (pt.reason) out.push(bullet(`理由：${pt.reason}`, MUTED));
-      (pt.evidences ?? []).slice(0, 3).forEach((e) => out.push(bullet(`证据：${e}`, MUTED)));
+  // 逐要点「判定依据与打分理由」：全量渲染（不筛选），未评的写明原因（§1.3-3）
+  out.push(h3('判定依据与打分理由', MUTED));
+  vp.points.forEach((pt) => {
+    out.push(
+      p([
+        t(`${pt.no}. ${pt.name}`, { bold: true, size: 21 }),
+        t(pt.score === null ? '　未评分' : `　${fmt(pt.score)} 分`, {
+          size: 21,
+          color: pt.score === null ? MUTED : scoreHex(pt.score),
+        }),
+        pt.level_label ? t(`　${pt.level_label}`, { size: 20, color: levelColor(pt.level_label) }) : t(''),
+      ]),
+    );
+    if (pt.reason) out.push(bullet(`判定理由：${pt.reason}`, MUTED));
+    (pt.evidences ?? []).forEach((e, i) => {
+      const src = pt.evidence_sources?.[i];
+      const srcLabel = src ? (SOURCE_LABEL[src] ?? src) : '出处';
+      out.push(bullet(`${srcLabel}：${e}`, MUTED));
     });
-  }
+    if (!pt.reason && !(pt.evidences?.length)) {
+      out.push(
+        bullet(
+          pt.score === null
+            ? '本次提交的材料中未找到该要点对应的课堂表现，故未评分，且不计入本视角均分；补充对应材料后可复核。'
+            : '本次未留下可引用的原文出处，该分由模型依据整体课堂表现判定，建议补充材料后复核。',
+          MUTED,
+        ),
+      );
+    }
+  });
 
   if (scored === 0) {
     out.push(notice(`「${vp.name}」本次未找到任何要点的表现依据，均分为空不代表零分。`));
@@ -1288,6 +1564,7 @@ function renderViewpoint(vp: LessonTypeViewpointResult): (Paragraph | Table)[] {
 function renderEssenceDomain(
   domain: { domain: 'cognitive' | 'affective'; name: string; indicators: EssenceIndicatorResult[]; score: number | null; score_100: number | null; scored_indicators: number; total_indicators: number; scored_points: number; total_points: number },
   fallbackName: string,
+  ctx: { interp?: DimensionInterpretation; materials: ExportDocxInput['materials'] },
 ): (Paragraph | Table)[] {
   const out: (Paragraph | Table)[] = [];
   const label = domain.domain === 'cognitive' ? '认知 · 数学高阶思维' : '情感 · 数学情感素养';
@@ -1313,6 +1590,59 @@ function renderEssenceDomain(
     ]);
   });
   out.push(table([5000, 2500, 1800], rows));
+
+  // ---- AI 内涵解读：四段式 ≥300 字（§1.3-(4)）----
+  if (ctx.interp) {
+    out.push(h3(`AI 内涵解读 · ${label}`, BRAND));
+    out.push(hint('四段式：这个域看什么 → 这课判成几分及原因 → 证据落在哪里 → 下一步怎么改。'));
+    const segs: Array<[string, string]> = [
+      ['这个域看什么', ctx.interp.how_to_read],
+      ['这课判成几分、为什么', ctx.interp.why],
+      ['证据落在哪里', ctx.interp.basis],
+      ['下一步怎么改', ctx.interp.how_to_improve],
+    ];
+    let segLen = 0;
+    segs.forEach(([lb, tx]) => {
+      if (!tx) return;
+      segLen += tx.length;
+      out.push(p([t(`${lb}：`, { bold: true, size: 22, color: INK, font: '黑体' }), t(tx, { size: 22 })]));
+    });
+    if (segLen < 300) {
+      out.push(hint(`（本段解读共 ${segLen} 字，低于目标 300 字；内容由模型生成，导出不作补写。）`));
+    }
+  } else {
+    out.push(notice('本域的 AI 内涵解读尚未生成，本次导出未能补齐；可在报告页「解读」处重试生成。'));
+  }
+
+  // ---- 观察点明细表：每个二级指标一张，全量点位（§1.3-(4)：57 点不得只给均分）----
+  const POINT_SRC: Record<string, string> = { av: '课堂实录', observer: '观察记录', task_sheet: '任务单' };
+  domain.indicators.forEach((ind) => {
+    if (!ind.points.length) return;
+    out.push(h3(`${ind.name || ind.code} · 观察点明细`, MUTED));
+    out.push(caption(`${ind.name || ind.code} 观察点明细`));
+    const rows: TableCell[][] = [
+      [
+        headCell('观察点'),
+        headCell('定义与打分归因'),
+        headCell('依据来源', undefined, AlignmentType.CENTER),
+        headCell('得分', undefined, AlignmentType.CENTER),
+        headCell('状态', undefined, AlignmentType.CENTER),
+      ],
+    ];
+    ind.points.forEach((pt) => {
+      const status =
+        pt.score !== null ? '已评' : pt.missing_material ? '不可评（缺材料）' : '无表现（不计均分）';
+      const srcTxt = (pt.sources ?? []).map((s) => POINT_SRC[s] ?? s).join('、') || '—';
+      rows.push([
+        bodyCell(pt.name || pt.code),
+        bodyCell([pt.definition, pt.reason ? `归因：${pt.reason}` : ''].filter(Boolean).join('；') || '—', { color: MUTED }),
+        bodyCell(srcTxt, { align: AlignmentType.CENTER, color: MUTED }),
+        bodyCell(fmt(pt.score), { bold: true, color: scoreHex(pt.score), align: AlignmentType.CENTER }),
+        bodyCell(status, { align: AlignmentType.CENTER, color: pt.score !== null ? '047857' : 'B45309' }),
+      ]);
+    });
+    out.push(table([1900, 3700, 1400, 900, 1500], rows));
+  });
 
   // 观察点未评有两种成因，分开说明：只合并成一句会让教师对不上数
   // （例：57 点里 10 个未评，却只被告知 5 个缺材料，另 5 个去向不明）
