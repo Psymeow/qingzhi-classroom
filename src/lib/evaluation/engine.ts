@@ -15,6 +15,7 @@ import type {
   EssencePointResult,
   Indicator,
   IndicatorResult,
+  IntegrationEvent,
   LessonTypeEvaluation,
   LessonTypePointResult,
   LessonTypeViewpointResult,
@@ -158,6 +159,27 @@ function manualEvidenceHints(
     hints.push(`互动箭头 ${ann.interactions?.length} 条`);
   }
   return hints.slice(0, 4);
+}
+
+/** 情智融合节点（qz_integration）打点 → D1/D4「融合证据」小节（纯展示，不影响评分） */
+function collectIntegrationEvents(
+  ann: Partial<LessonAnnotation> | null | undefined,
+  dimCode: string,
+): IntegrationEvent[] {
+  if (!ann?.events?.length) return [];
+  return ann.events
+    .filter((e) => e.category === "qz_integration")
+    .filter((e) => {
+      const codes = e.dimension_codes;
+      if (!codes || codes.length === 0) return true; // 未手动指定维度时，D1/D4 都关联
+      return codes.includes(dimCode);
+    })
+    .sort((a, b) => (a.time_sec ?? 0) - (b.time_sec ?? 0))
+    .map((e) => ({
+      time_sec: e.time_sec,
+      note: e.note,
+      ...(e.seat_ids?.length ? { seat_ids: e.seat_ids } : {}),
+    }));
 }
 
 /**
@@ -635,6 +657,9 @@ export function analyzeLesson(input: EngineInput): AnalysisReport {
       source_fused: sourceFused,
       reconcile_gap: reconcileGap,
       review_reason: reviewReason,
+      ...(dim.code === "D1" || dim.code === "D4"
+        ? { integration_events: collectIntegrationEvents(input.annotation, dim.code) }
+        : {}),
     };
   });
 

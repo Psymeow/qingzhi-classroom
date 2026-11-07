@@ -180,6 +180,14 @@ export interface IndicatorResult {
   missing_material?: boolean;
 }
 
+/** 情智融合节点（qz_integration）打点事件（D1/D4「融合证据」小节，纯展示） */
+export interface IntegrationEvent {
+  /** 秒 */
+  time_sec: number;
+  note: string;
+  seat_ids?: string[];
+}
+
 /** 维度融合结果 */
 export interface DimensionResult {
   dimension_code: string;
@@ -208,6 +216,8 @@ export interface DimensionResult {
   reconcile_gap?: number | null;
   /** 触发复核的原因（V1.8）：来源冲突 / 对账有缺口 / 两者皆有；未触发时不返回 */
   review_reason?: "source_conflict" | "reconcile_gap" | "both";
+  /** 融合节点打点证据（D1/D4「融合证据」小节）；旧报告无此字段时前端不渲染 */
+  integration_events?: IntegrationEvent[];
 }
 
 /** 人工校准记录（AI 与人工双留痕） */

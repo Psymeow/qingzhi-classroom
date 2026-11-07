@@ -1445,6 +1445,22 @@ function renderDimension(
     });
   }
 
+  // ---- 融合证据（情智融合节点打点，D1/D4；纯展示，不影响评分）----
+  const ievts = d.integration_events ?? [];
+  if (ievts.length) {
+    out.push(h3('融合证据 · 情智融合节点', '4338CA'));
+    const rows: TableCell[][] = [[headCell('时刻'), headCell('备注原文')]];
+    ievts.forEach((ev) => {
+      const mm = Math.floor((ev.time_sec ?? 0) / 60).toString().padStart(2, '0');
+      const ss = ((ev.time_sec ?? 0) % 60).toString().padStart(2, '0');
+      rows.push([
+        bodyCell(mm + ':' + ss, { align: AlignmentType.CENTER, color: '4338CA' }),
+        bodyCell(ev.note || '—'),
+      ]);
+    });
+    out.push(table([1400, 8600], rows));
+  }
+
   // ---- 理论依据（§1.3-2：1–2 句，引用文献与附录 B 对应）----
   const anchor = THEORY_ANCHORS[d.dimension_code];
   if (anchor) {

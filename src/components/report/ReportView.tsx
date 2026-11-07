@@ -19,11 +19,12 @@ import {
   CheckCircle2,
   FileText,
   BookOpen,
+  Download,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import { annotationApi, apiDownload, ApiError, inputsApi, type StoredReport } from '@/lib/api/client';
+import { annotationApi, apiDownload, ApiError, inputsApi, assetsApi, type Asset, type StoredReport } from '@/lib/api/client';
 import { SOURCE_LABEL } from '@/lib/evaluation/types';
 import { pickBehaviors } from '@/lib/evaluation/behavior-library';
 import type { DimMeta } from '@/components/annotation/DimensionScores';
@@ -47,6 +48,13 @@ import DimensionInterpretationBlock, {
 } from './DimensionInterpretation';
 import TheoryAnchorTag from './TheoryAnchorTag';
 import { collectBibliography, METHODOLOGY_NOTE } from '@/lib/report/theory-anchors';
+import {
+  ASSESSMENT_GOAL_2022,
+  CURRICULUM_GOALS_2022,
+  DIMENSION_COMPETENCY,
+  EMOTION_GOAL_2022,
+  competencyByCode,
+} from '@/lib/report/curriculum-2022';
 import { downloadReportHtml } from '@/lib/report/export-html';
 import {
   getSourceText,
@@ -88,6 +96,7 @@ const SECTION_NAV = [
   { n: '2', id: 'sec-dims', title: '五维拆开看' },
   { n: '3', id: 'sec-evidence', title: '每条分的出处' },
   { n: '4', id: 'sec-scene', title: '课堂现场与材料' },
+  { n: '5', id: 'sec-curriculum', title: '课标对标' },
 ];
 
 /** 证据来源分组的固定排序：课堂上真实发生的排前面，教案排最后。 */
@@ -198,6 +207,10 @@ export default function ReportView({
   // 原文缓存写入完成后的重渲染触发器：缓存是模块级的，写入不会自动触发更新
   const [, setSourceTick] = useState(0);
   const reportRef = useRef<HTMLDivElement | null>(null);
+  // 关键事件「下载本段」：页面加载时找本课音视频素材，用于截取事件前后片段。
+  const [avAsset, setAvAsset] = useState<Asset | null>(null);
+  const [clipMsg, setClipMsg] = useState<string | null>(null);
+  const [clippingSec, setClippingSec] = useState<number | null>(null);
 
   const exportFileName = useMemo(() => {
     const title = (lessonTitle || '课堂分析报告').replace(/[\\/:*?"<>|]/g, '_');
@@ -312,6 +325,60 @@ export default function ReportView({
     }
   };
 
+  /**
+   * 「下载本段」：关键事件前后各 15 秒，从音视频素材截取片段。
+   * 与 Word 导出同因：接口走 x-session 鉴权，<a> 直链带不上自定义头，
+   * 必须 fetch 拿 blob 再触发下载；失败只提示、不落盘。
+   */
+  const handleDownloadClip = async (timeSec: number) => {
+    if (!avAsset) {
+      setClipMsg('本课暂无音视频素材，无法截取片段。');
+      return;
+    }
+    const start = Math.max(0, timeSec - 15);
+    const end = timeSec + 15;
+    setClippingSec(timeSec);
+    setClipMsg(null);
+    try {
+      const path = `/api/lessons/${lessonId}/assets/${avAsset.id}/clip?start=${start.toFixed(
+        2,
+      )}&end=${end.toFixed(2)}`;
+      const res = await apiDownload(path);
+      const type = res.headers.get('content-type') ?? '';
+      if (!res.ok || (!type.includes('video') && !type.includes('audio'))) {
+        const err = (await res.json().catch(() => null)) as { error?: string } | null;
+        setClipMsg(
+          res.status === 401
+            ? '下载需要登录，请刷新页面重新登录后再试。'
+            : `截取失败：${err?.error || `服务返回 ${res.status}`}`,
+        );
+        return;
+      }
+      const blob = await res.blob();
+      const disp = res.headers.get('content-disposition') ?? '';
+      const starMatch = /filename\*=UTF-8''([^;]+)/i.exec(disp);
+      const name = starMatch
+        ? decodeURIComponent(starMatch[1])
+        : `clip_${start.toFixed(0)}-${end.toFixed(0)}.mp4`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (e) {
+      setClipMsg(
+        e instanceof ApiError && e.status === 401
+          ? '下载需要登录，请刷新页面重新登录后再试。'
+          : '截取失败，请检查网络后重试。',
+      );
+    } finally {
+      setClippingSec(null);
+    }
+  };
+
   useEffect(() => {
     // 离线样例已注入标注，不再请求接口
     if (initialAnnotation) {
@@ -361,6 +428,29 @@ export default function ReportView({
       } catch (e) {
         // 401 交给页面统一跳登录；其余失败只影响时间码显示，不打断报告阅读
         if (e instanceof ApiError && e.status === 401) onUnauthorized();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lessonId, offlineSample]);
+
+  // 「下载本段」依赖音视频素材：加载本课素材，优先视频，其次音频。
+  useEffect(() => {
+    if (offlineSample) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const assets = await assetsApi.list(lessonId);
+        if (cancelled) return;
+        const av =
+          assets.find((a) => a.kind === 'av_video') ??
+          assets.find((a) => a.kind === 'av_audio') ??
+          null;
+        setAvAsset(av);
+      } catch {
+        // 拿不到素材时只是不显示下载按钮，不打断报告阅读
       }
     })();
     return () => {
@@ -660,12 +750,20 @@ export default function ReportView({
       <div className="grid gap-3 md:grid-cols-3">
         <Card className="shadow-card md:col-span-1">
           <CardContent className="flex flex-col items-center justify-center p-5 text-center">
-            <div className="text-xs text-muted-foreground">综合得分</div>
-            <div className="mt-1 bg-brand-gradient bg-clip-text text-5xl font-bold tabular-nums text-transparent">
-              {result.total_score.toFixed(1)}
-              <span className="ml-1 text-lg font-medium text-muted-foreground">/ 100</span>
+            <div className="text-xs text-muted-foreground">综合评定</div>
+            <div className="mt-2">
+              <span
+                className={`inline-flex items-center rounded-full px-4 py-1.5 text-lg font-semibold leading-none ${levelColorClass(
+                  result.total_level,
+                )}`}
+              >
+                {result.total_level}
+              </span>
             </div>
-            <Badge className={`mt-2 ${levelColorClass(result.total_level)}`}>{result.total_level}</Badge>
+            <div className="mt-2 text-2xl font-bold tabular-nums text-foreground/80">
+              {result.total_score.toFixed(1)}
+              <span className="ml-0.5 text-sm font-medium text-muted-foreground">/ 100</span>
+            </div>
             <div className="mt-2 w-full max-w-[16rem]">
               {/* total_score 是百分制，而刻度条按 0-10 绘制：必须换算，否则条恒为满格，纯属误导 */}
               <ScaleBar score={result.total_score / 10} band={result.total_level} showMeta={false} />
@@ -757,6 +855,12 @@ export default function ReportView({
                         </span>
                         <span className="text-foreground/85"> · {b.operating}</span>
                         <span className="block text-muted-foreground">{b.mechanism}</span>
+                        {b.ask && (
+                          <span className="mt-0.5 block text-blue-800/90">
+                            <span className="font-medium">可以这样问：</span>
+                            {b.ask}
+                          </span>
+                        )}
                       </li>
                     ))}
                   </ul>
@@ -873,6 +977,23 @@ export default function ReportView({
                     error={dimInterp.error}
                     onRetry={dimInterp.retry}
                   />
+                  {d.integration_events && d.integration_events.length > 0 && (
+                    <div className="mt-2 rounded-lg border border-indigo-100 bg-indigo-50/50 p-2.5">
+                      <div className="text-[11px] font-medium text-indigo-700">融合证据 · 情智融合节点（{d.integration_events.length}）</div>
+                      <ol className="mt-1.5 space-y-1">
+                        {d.integration_events.map((ev, k) => {
+                          const mm = Math.floor((ev.time_sec ?? 0) / 60).toString().padStart(2, '0');
+                          const ss = ((ev.time_sec ?? 0) % 60).toString().padStart(2, '0');
+                          return (
+                            <li key={k} className="flex gap-2 text-[11px] leading-relaxed text-foreground/80">
+                              <span className="shrink-0 font-mono tabular-nums text-indigo-600">{mm}:{ss}</span>
+                              <span>{ev.note || '—'}</span>
+                            </li>
+                          );
+                        })}
+                      </ol>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -997,21 +1118,109 @@ export default function ReportView({
                 const mm = Math.floor((e.time_sec ?? 0) / 60).toString().padStart(2, '0');
                 const ss = ((e.time_sec ?? 0) % 60).toString().padStart(2, '0');
                 return (
-                  <li key={e.id} className="flex gap-3 text-xs">
+                  <li key={e.id} className="flex items-center gap-3 text-xs">
                     <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 font-mono tabular-nums text-primary">
                       {mm}:{ss}
                     </span>
                     <Badge variant="secondary" className="shrink-0 text-[10px]">
                       {EVENT_CATEGORY_LABEL[e.category] ?? e.category}
                     </Badge>
-                    <span className="text-muted-foreground">{e.note || '—'}</span>
+                    <span className="min-w-0 flex-1 text-muted-foreground">{e.note || '—'}</span>
+                    {avAsset && !offlineSample && (
+                      <button
+                        type="button"
+                        disabled={clippingSec !== null}
+                        onClick={() => void handleDownloadClip(e.time_sec ?? 0)}
+                        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50 print:hidden"
+                        title={`截取 ${mm}:${ss} 前后各 15 秒的音视频片段`}
+                      >
+                        {clippingSec === e.time_sec ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Download className="h-3 w-3" />
+                        )}
+                        下载本段
+                      </button>
+                    )}
                   </li>
                 );
               })}
             </ol>
+            {clipMsg && (
+              <div className="mt-2 rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] text-sky-800 print:hidden">
+                {clipMsg}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
+
+      {/* 课标对标：把五维评价挂回 2022 课标，回答「这些维度落在课标哪条核心素养上」 */}
+      <SectionHead
+        n="5"
+        id="sec-curriculum"
+        title="课标对标"
+        hint="这一节把本平台的五维评价挂回 2022 版课程标准：每个维度落在哪几条核心素养上，情感态度对应哪句总目标。"
+        questions={[
+          '这个维度最贴近课标里的哪条核心素养？',
+          '哪些素养在本次课堂上没有单独成维？',
+          '评价是否兼顾了结果与过程？',
+        ]}
+      />
+      <Card className="break-inside-avoid shadow-card">
+        <CardContent className="space-y-3 p-4">
+          <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
+            <div className="text-[11px] font-medium text-foreground/80">课程总目标 · 三会（原文）</div>
+            <ul className="mt-1.5 space-y-1 text-xs leading-relaxed text-foreground/85">
+              <li>{CURRICULUM_GOALS_2022.eye}</li>
+              <li>{CURRICULUM_GOALS_2022.mind}</li>
+              <li>{CURRICULUM_GOALS_2022.language}</li>
+            </ul>
+          </div>
+
+          <div className="space-y-2.5">
+            {result.dimension_results.map((d) => {
+              const meta = dimensions.find((x) => x.code === d.dimension_code);
+              const comps = DIMENSION_COMPETENCY[d.dimension_code] ?? [];
+              return (
+                <div key={d.dimension_code} className="rounded-lg border border-border/60 p-3">
+                  <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-foreground">
+                    <span className="text-foreground/60">{d.dimension_code}</span>
+                    <span>{meta?.name ?? d.dimension_code}</span>
+                  </div>
+                  {comps.length === 0 ? (
+                    <div className="text-[11px] leading-relaxed text-muted-foreground">
+                      <span className="font-medium text-foreground/80">情感态度目标：</span>
+                      {EMOTION_GOAL_2022}
+                    </div>
+                  ) : (
+                    <ul className="space-y-1.5">
+                      {comps.map((code) => {
+                        const c = competencyByCode(code);
+                        if (!c) return null;
+                        return (
+                          <li key={code} className="text-[11px] leading-relaxed">
+                            <span className="font-medium text-foreground/90">
+                              {c.name}
+                              <span className="ml-1 font-normal text-muted-foreground">（{c.stage}）</span>
+                            </span>
+                            <span className="text-muted-foreground"> · {c.definition}</span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="border-t border-border/60 pt-2 text-[11px] leading-relaxed text-muted-foreground">
+            <span className="font-medium text-foreground/80">课程理念 · 评价：</span>
+            {ASSESSMENT_GOAL_2022}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* V1.26 理论依据与参考文献：让报告本身可被引用；方法学声明诚实交代 AI 判定边界 */}
       <Card className="break-inside-avoid shadow-card">

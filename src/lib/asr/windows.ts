@@ -22,6 +22,7 @@ import {
   type AsrSegment,
   type AudioProbe,
 } from './timeline';
+import { normalizeMath } from './math-normalize';
 
 /** 窗口长度：60 秒。30 秒窗每个边界约 2/3 会切断句子，60 秒把边界数量减半。 */
 export const WINDOW_MS = 60_000;
@@ -142,7 +143,7 @@ export async function buildWindowSegments(opts: {
       try {
         const url = await signObjectUrl(key);
         const r = await asr.recognize({ uid, url });
-        text = textOf(r);
+        text = normalizeMath(textOf(r));
       } finally {
         await deleteObject(key).catch(() => {});
       }

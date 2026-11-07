@@ -9,6 +9,7 @@ import { authenticate, AuthError } from '@/lib/auth/server';
 import { ensureLessonOwned } from '@/lib/auth/lesson';
 import { signObjectUrl, uploadObject } from '@/lib/storage/s3';
 import { buildTimedTranscript, probeAudioTimeline } from '@/lib/asr/timeline';
+import { normalizeMath } from '@/lib/asr/math-normalize';
 import { alignmentAcceptable, buildWindowSegments, downloadToFile } from '@/lib/asr/windows';
 import { msToClock } from '@/lib/report/timeline';
 
@@ -115,6 +116,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       rawData?: { result?: { text?: string } };
     };
     const asrText = (raw.text ?? raw.rawData?.result?.text ?? '').trim();
+    // 数学表达式后处理：口语数学（a加b、x的平方、根号2…）符号化，提升转写可读性
+    const normalizedText = normalizeMath(asrText);
 
     // 探测用同一份音轨：视频用抽出的 16k 音轨，音频直接用原文件 URL。
     // 探测失败不阻断识别：退化为无时间轴（转写照常写入，切片页会提示重新识别）。
@@ -123,7 +126,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       silences: [] as Array<{ s: number; e: number }>,
     }));
     const built = buildTimedTranscript(
-      asrText,
+      normalizedText,
       probe.durationMs,
       probe.silences,
       TRANSCRIPT_MAX_CHARS,

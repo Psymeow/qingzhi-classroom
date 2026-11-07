@@ -6,9 +6,11 @@
 //       此前三层结构只活在后端：维度分能对账，但教师看不到
 //       33 个指标各自的名字、分数、哪几格是空的。
 // 一格 = 一个二级指标；颜色 = 档位；虚线空框 = 本次未评（材料不足）；
-// 琥珀点 = 多源分歧待复核；悬停看指标名、分数、证据条数。
+// 琥珀点 = 多源分歧待复核；底部短横线 = 规则可核（硬指标，有词表信号兜底）。
 // 纯展示组件：数据全部来自已有报告，不新增采集、不新增评分。
 // ============================================================
+
+import { evidenceKindOf, EVIDENCE_KIND_LABEL } from '@/lib/report/curriculum-2022';
 
 interface MapIndicator {
   indicator_code: string;
@@ -96,6 +98,12 @@ export default function IndicatorMap({ results, meta, names, className = '' }: P
             待补
           </span>
           <span className="inline-flex items-center gap-1">
+            <i className="relative h-2.5 w-2.5 rounded-[3px] border border-border">
+              <i className="absolute bottom-[1px] left-1/2 h-[2px] w-2 -translate-x-1/2 rounded-full bg-foreground/60" />
+            </i>
+            规则可核
+          </span>
+          <span className="inline-flex items-center gap-1">
             <i className="h-2.5 w-2.5 rounded-full bg-amber-500" />
             待复核
           </span>
@@ -112,22 +120,30 @@ export default function IndicatorMap({ results, meta, names, className = '' }: P
               <span className="font-medium text-foreground/70">{row.code}</span> {row.name}
             </div>
             <div className="flex flex-1 flex-wrap gap-1">
-              {row.cells.map((c) => (
-                <span
-                  key={c.indicator_code}
-                  title={`${c.indicator_code} ${c.label} · ${
-                    c.score === null ? '本次未评（材料不足）' : `${c.score.toFixed(1)} 分`
-                  } · ${c.evidenceCount} 条证据${c.need_review ? ' · 待复核' : ''}`}
-                  className={`relative flex h-6 w-6 items-center justify-center rounded-[5px] text-[10px] font-medium tabular-nums ${cellTone(
-                    c.score,
-                  )}`}
-                >
-                  {c.seq}
-                  {c.need_review && (
-                    <i className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-amber-500 ring-1 ring-background" />
-                  )}
-                </span>
-              ))}
+              {row.cells.map((c) => {
+                const kind = evidenceKindOf(c.indicator_code);
+                return (
+                  <span
+                    key={c.indicator_code}
+                    title={`${c.indicator_code} ${c.label} · ${
+                      c.score === null ? '本次未评（材料不足）' : `${c.score.toFixed(1)} 分`
+                    } · ${c.evidenceCount} 条证据 · ${EVIDENCE_KIND_LABEL[kind]}${
+                      c.need_review ? ' · 待复核' : ''
+                    }`}
+                    className={`relative flex h-6 w-6 items-center justify-center rounded-[5px] text-[10px] font-medium tabular-nums ${cellTone(
+                      c.score,
+                    )}`}
+                  >
+                    {c.seq}
+                    {kind === 'rule' && (
+                      <i className="absolute bottom-[1px] left-1/2 h-[2px] w-3 -translate-x-1/2 rounded-full bg-foreground/60" />
+                    )}
+                    {c.need_review && (
+                      <i className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-amber-500 ring-1 ring-background" />
+                    )}
+                  </span>
+                );
+              })}
             </div>
           </div>
         ))}
