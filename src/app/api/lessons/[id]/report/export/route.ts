@@ -182,11 +182,15 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
       .eq('user_id', user.id)
       .maybeSingle();
 
-    // 绑定标准的档位数据；缺失时由 docx 模块整体回退系统通用五档并注明
-    const rawBands = (standard as unknown as { bands?: unknown }).bands;
-    const bands: ScoreBand[] | null = Array.isArray(rawBands) ? (rawBands as ScoreBand[]) : null;
-    const standardName = (standard as unknown as { name?: string }).name ?? '情智相长数学课堂评价标准';
-    const standardVersion = (standard as unknown as { version?: string }).version ?? '';
+    // 绑定标准的档位数据：档位挂在 dimensions[].bands（各维度命名不同，如「未融合/较融合」与「基本显现/表现良好」），
+    // 顶层并不存在 bands 字段；分维度档位缺失时由 docx 模块整体回退系统通用五档并注明。
+    const dimensionBands: Array<{ code: string; name: string; bands: ScoreBand[] }> = (
+      standard.dimensions ?? []
+    )
+      .filter((d) => Array.isArray(d.bands) && d.bands.length > 0)
+      .map((d) => ({ code: d.code, name: d.name, bands: d.bands }));
+    const standardName = standard.name ?? '情智相长数学课堂评价标准';
+    const standardVersion = standard.version ?? '';
 
     const title = (lesson?.title || '课堂分析报告').replace(/[\\/:*?"<>|]/g, '_');
     const generatedAt = new Date(report.generated_at);
@@ -210,9 +214,9 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
       events: (payload.events ?? []) as never,
       seating: (payload.seating ?? null) as never,
       interactions: (payload.interactions ?? []) as never,
-      bands,
-      bandSourceNote: bands?.length ? `档位数据来源：${standardName}${standardVersion ? ` v${standardVersion}` : ''}` : null,
-      bandsMissing: !bands?.length,
+      dimensionBands,
+      bandSourceNote: dimensionBands.length ? `档位数据来源：${standardName}${standardVersion ? ` v${standardVersion}` : ''}` : null,
+      bandsMissing: !dimensionBands.length,
       autoFillNotes,
       materials: {
         transcript: inp?.transcript ?? null,

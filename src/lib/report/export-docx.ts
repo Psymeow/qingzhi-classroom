@@ -418,6 +418,8 @@ export interface ExportDocxInput {
   interactions?: InteractionEdge[];
   /** 绑定标准的档位数据（0-10 区间）；缺失时整体回退系统通用五档 */
   bands?: ScoreBand[] | null;
+  /** 绑定标准的分维度档位（各维度命名不同，如「未融合/较融合」与「基本显现/表现良好」）；优先于 bands */
+  dimensionBands?: Array<{ code: string; name: string; bands: ScoreBand[] }> | null;
   /** 档位来源说明（标准名称与版本），使用绑定档位时注明来源 */
   bandSourceNote?: string | null;
   /** 档位数据是否缺失（true 时整体回退通用档位并注明） */
@@ -447,6 +449,7 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
   const cover: (Paragraph | Table)[] = [];
 
   const dimName = (code: string) => input.dimensions.find((d) => d.code === code)?.name ?? code;
+  const dimWeight = (code: string) => input.dimensions.find((d) => d.code === code)?.weight ?? 0;
   const indicatorName = (code: string, fallback?: string) =>
     fallback ?? input.indicatorNames?.[code] ?? code;
 
@@ -684,7 +687,7 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
     const scoredInd = inds.filter((x) => x.score !== null).length;
     dimRows.push([
       bodyCell(dimName(d.dimension_code)),
-      bodyCell(`${Math.round((report.source_weights?.[d.dimension_code as never] ?? 0) * 100)}%`, { align: AlignmentType.CENTER }),
+      bodyCell(`${Math.round(dimWeight(d.dimension_code) * 100)}%`, { align: AlignmentType.CENTER }),
       bodyCell(d.score === null ? '—' : d.score.toFixed(1), { bold: true, color: scoreHex(d.score), align: AlignmentType.CENTER }),
       bodyCell(d.level_label ?? '—', { color: levelColor(d.level_label), align: AlignmentType.CENTER }),
       bodyCell(inds.length ? `${scoredInd} / ${inds.length}` : '—', { align: AlignmentType.CENTER, color: inds.length && scoredInd < inds.length ? 'B45309' : MUTED }),
@@ -1085,6 +1088,10 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
     const readingN = report.evidence_readings?.length ?? 0;
     const status = (n: number, exp: number): string =>
       exp === 0 ? '不适用' : n >= exp ? '已生成' : n > 0 ? '部分生成' : '未生成';
+    // 分析引擎状态按 enabled（是否请求）/used（是否成功产出）区分，避免「未启用」与「AI 降级说明」并存矛盾（规格禁止项 5）
+    const aiMeta = report.ai_meta;
+    const engineStatus = !aiMeta || !aiMeta.enabled ? '未启用' : aiMeta.used ? '已产出' : '降级';
+    const engineStatusColor = !aiMeta || !aiMeta.enabled ? '9CA3AF' : aiMeta.used ? INK : 'B91C1C';
     children.push(
       table(
         [2600, 1600, 4800],
@@ -1092,8 +1099,8 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
           [headCell('AI 项', undefined, AlignmentType.CENTER), headCell('状态', undefined, AlignmentType.CENTER), headCell('说明')],
           [
             bodyCell('分析引擎', { align: AlignmentType.CENTER }),
-            bodyCell(report.ai_meta?.used ? '已启用' : '未启用', { align: AlignmentType.CENTER, color: report.ai_meta?.used ? INK : 'B91C1C' }),
-            bodyCell(report.ai_meta?.model ?? '—'),
+            bodyCell(engineStatus, { align: AlignmentType.CENTER, color: engineStatusColor }),
+            bodyCell(aiMeta?.model ?? '—'),
           ],
           [
             bodyCell('五维维度解读', { align: AlignmentType.CENTER }),
@@ -1125,36 +1132,50 @@ export async function buildReportDocx(input: ExportDocxInput): Promise<Buffer> {
   if (isFull) {
     setTableChapter('A');
     children.push(h1('附录 A　评分档位说明', { pageBreak: true }));
-    const bands: ScoreBand[] = input.bands?.length ? input.bands : GENERIC_BANDS;
-    if (input.bandsMissing) {
-      children.push(notice('绑定标准未提供档位数据，以下为系统通用五档。'));
-    } else if (input.bandSourceNote) {
-      children.push(hint(input.bandSourceNote));
-    }
-    // 适用维度须写明（§1.6）：档位由绑定标准给出、非分维度数据，故为全维度适用
-    children.push(
-      hint(
-        `适用维度：本档位由绑定标准给出，适用于本报告全部五个维度（${input.dimensions.map((d) => d.name).join('、')}）。`,
-      ),
-    );
-    children.push(caption('评分档位说明'));
-    const bandRows: TableCell[][] = [
-      [
-        headCell('档位', undefined, AlignmentType.CENTER),
-        headCell('0–10 分区间', undefined, AlignmentType.CENTER),
-        headCell('0–100 分区间', undefined, AlignmentType.CENTER),
-        headCell('档位描述'),
-      ],
+    const bandHead: TableCell[] = [
+      headCell('档位', undefined, AlignmentType.CENTER),
+      headCell('0–10 分区间', undefined, AlignmentType.CENTER),
+      headCell('0–100 分区间', undefined, AlignmentType.CENTER),
+      headCell('档位描述'),
     ];
-    bands.forEach((b) => {
-      bandRows.push([
-        bodyCell(b.label, { bold: true, align: AlignmentType.CENTER }),
-        bodyCell(`${b.min} – ${b.max}`, { align: AlignmentType.CENTER }),
-        bodyCell(`${Math.round(b.min * 10)} – ${Math.round(b.max * 10)}`, { align: AlignmentType.CENTER }),
-        bodyCell(b.description || '—'),
-      ]);
-    });
-    children.push(table([1500, 1800, 1800, 4900], bandRows));
+    const bandRow = (b: ScoreBand): TableCell[] => [
+      bodyCell(b.label, { bold: true, align: AlignmentType.CENTER }),
+      bodyCell(`${b.min} – ${b.max}`, { align: AlignmentType.CENTER }),
+      bodyCell(`${Math.round(b.min * 10)} – ${Math.round(b.max * 10)}`, { align: AlignmentType.CENTER }),
+      bodyCell(b.description || '—'),
+    ];
+
+    const dimBands = input.dimensionBands ?? [];
+    if (dimBands.length) {
+      // §1.6：分维度档位，按维度分组列出并标明适用维度（各维度命名不同）
+      if (input.bandSourceNote) children.push(hint(input.bandSourceNote));
+      // 综合得分等级：正文「综合（加权 ×10）」行的等级词（如「良好」）来自系统通用五档，
+      // 与各维度专属档位命名不同，须单独列明，避免正文等级词在附录 A 中无出处（禁止项 7）。
+      children.push(h3('综合得分等级（适用于加权 ×10 后的 0–100 分）', '047857'));
+      children.push(caption('综合得分等级'));
+      children.push(table([1500, 1800, 1800, 4900], [bandHead, ...GENERIC_BANDS.map(bandRow)]));
+      dimBands.forEach((db) => {
+        children.push(h3(`${db.name}（${db.code}）`, '047857'));
+        children.push(caption(`${db.name} 评分档位`));
+        children.push(table([1500, 1800, 1800, 4900], [bandHead, ...db.bands.map(bandRow)]));
+      });
+    } else {
+      // 回退：统一五档（绑定标准或系统通用）
+      const bands: ScoreBand[] = input.bands?.length ? input.bands : GENERIC_BANDS;
+      if (input.bandsMissing) {
+        children.push(notice('绑定标准未提供档位数据，以下为系统通用五档。'));
+      } else if (input.bandSourceNote) {
+        children.push(hint(input.bandSourceNote));
+      }
+      // 适用维度须写明（§1.6）：档位由绑定标准给出、非分维度数据，故为全维度适用
+      children.push(
+        hint(
+          `适用维度：本档位由绑定标准给出，适用于本报告全部五个维度（${input.dimensions.map((d) => d.name).join('、')}）。`,
+        ),
+      );
+      children.push(caption('评分档位说明'));
+      children.push(table([1500, 1800, 1800, 4900], [bandHead, ...bands.map(bandRow)]));
+    }
 
     setTableChapter('B');
     children.push(h1('附录 B　理论依据与参考文献', { pageBreak: true }));
